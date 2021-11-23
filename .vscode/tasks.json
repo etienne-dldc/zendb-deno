@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run example once",
+      "type": "deno",
+      "command": "run",
+      "args": ["--unstable", "-A", "example/main.ts"],
+      "problemMatcher": ["$deno"]
+    },
+    {
+      "label": "Reload example",
+      "type": "deno",
+      "command": "run",
+      "args": ["--unstable", "-A", "--reload", "example/main.ts"],
+      "problemMatcher": ["$deno"]
+    }
+  ]
+}
