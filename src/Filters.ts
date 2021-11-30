@@ -1,16 +1,16 @@
-import { MAX, MIN } from "./CompareFn.ts";
+import { MAX, MIN } from "./Comparable.ts";
 
-export const OPS_INTERNAL = Symbol("OPS_INTERNAL");
+export const FILTERS_INTERNAL = Symbol("FILTERS_INTERNAL");
 
 export type BetweenOptions = {
   includeMin?: boolean;
   includeMax?: boolean;
 };
 
-export type Op<V> =
-  | { kind: "and"; left: Op<V>; right: Op<V> }
-  | { kind: "or"; left: Op<V>; right: Op<V> }
-  | { kind: "not"; op: Op<V> }
+export type Filter<V> =
+  | { kind: "and"; left: Filter<V>; right: Filter<V> }
+  | { kind: "or"; left: Filter<V>; right: Filter<V> }
+  | { kind: "not"; filter: Filter<V> }
   | { kind: "oneOf"; values: Array<V> }
   | { kind: "equal"; value: V }
   | {
@@ -20,66 +20,66 @@ export type Op<V> =
       options?: BetweenOptions;
     };
 
-export const ops = {
-  and<V>(left: Op<V>, right: Op<V>): Op<V> {
+export const filters = {
+  and<V>(left: Filter<V>, right: Filter<V>): Filter<V> {
     return { kind: "and", left, right };
   },
-  or<V>(left: Op<V>, right: Op<V>): Op<V> {
+  or<V>(left: Filter<V>, right: Filter<V>): Filter<V> {
     return { kind: "or", left, right };
   },
-  not<V>(op: Op<V>): Op<V> {
-    return { kind: "not", op };
+  not<V>(filter: Filter<V>): Filter<V> {
+    return { kind: "not", filter };
   },
-  oneOf<V>(...values: Array<V>): Op<V> {
+  oneOf<V>(...values: Array<V>): Filter<V> {
     return { kind: "oneOf", values };
   },
   between<V>(
     min: V | typeof MIN,
     max: V | typeof MAX,
     options?: BetweenOptions
-  ): Op<V> {
+  ): Filter<V> {
     return { kind: "between", min, max, options };
   },
 
-  equal<V>(value: V): Op<V> {
+  equal<V>(value: V): Filter<V> {
     return { kind: "equal", value };
   },
-  eq<V>(value: V): Op<V> {
+  eq<V>(value: V): Filter<V> {
     return this.equal(value);
   },
 
-  notEqual<V>(value: V): Op<V> {
+  notEqual<V>(value: V): Filter<V> {
     return this.not(this.equal(value));
   },
-  ne<V>(value: V): Op<V> {
+  ne<V>(value: V): Filter<V> {
     return this.notEqual(value);
   },
 
-  lessThan<V>(value: V): Op<V> {
+  lessThan<V>(value: V): Filter<V> {
     return this.between(MIN, value, { includeMax: false });
   },
-  lt<V>(value: V): Op<V> {
+  lt<V>(value: V): Filter<V> {
     return this.lessThan(value);
   },
 
-  greaterThan<V>(value: V): Op<V> {
+  greaterThan<V>(value: V): Filter<V> {
     return this.between(value, MAX, { includeMin: false });
   },
-  gt<V>(value: V): Op<V> {
+  gt<V>(value: V): Filter<V> {
     return this.greaterThan(value);
   },
 
-  lessThanOrEqual<V>(value: V): Op<V> {
+  lessThanOrEqual<V>(value: V): Filter<V> {
     return this.between(MIN, value, { includeMax: true });
   },
-  lte<V>(value: V): Op<V> {
+  lte<V>(value: V): Filter<V> {
     return this.lessThanOrEqual(value);
   },
 
-  greaterThanOrEqual<V>(value: V): Op<V> {
+  greaterThanOrEqual<V>(value: V): Filter<V> {
     return this.between(value, MAX, { includeMin: true });
   },
-  gte<V>(value: V): Op<V> {
+  gte<V>(value: V): Filter<V> {
     return this.greaterThanOrEqual(value);
   },
 } as const;

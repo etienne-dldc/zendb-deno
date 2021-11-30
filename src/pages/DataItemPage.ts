@@ -1,17 +1,17 @@
 // deno-lint-ignore-file no-explicit-any
 import { Page } from "../../deps.ts";
-import { PageType, VALUE_BLOCK } from "./utils.ts";
+import { StoragePageType, VALUE_BLOCK } from "./utils.ts";
 
 export class DataItemPage {
   private readonly page: Page;
   private dataCache: null | any = null;
 
   constructor(page: Page) {
-    if (page.type === PageType.Empty) {
+    if (page.type === StoragePageType.Empty) {
       // init page
-      page.type = PageType.DataItem;
+      page.type = StoragePageType.DataItem;
     }
-    if (page.type !== PageType.DataItem) {
+    if (page.type !== StoragePageType.DataItem) {
       throw new Error("Invalid page type");
     }
     this.page = page;

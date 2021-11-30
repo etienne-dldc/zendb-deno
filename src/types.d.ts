@@ -1,11 +1,12 @@
-import { Comparable } from "./compare.ts";
+import { Comparable } from "./Comparable.ts";
 
 export type IIndexFn<T, Out extends Comparable> = (item: T) => Out;
 
 export type IIndexObj<T, Out extends Comparable> = {
   treeOrder?: number;
   unique?: boolean;
-  fn: IIndexFn<T, Out>;
+  key: IIndexFn<T, Out>;
+  filter?: null | ((item: T) => boolean);
 };
 
 export type IIndex<T, Out extends Comparable> =
@@ -15,7 +16,8 @@ export type IIndex<T, Out extends Comparable> =
 export type IIndexResolved<T, Out extends Comparable> = {
   unique: boolean;
   treeOrder: number;
-  fn: IIndexFn<T, Out>;
+  key: IIndexFn<T, Out>;
+  filter: null | ((item: T) => boolean);
 };
 
 export type IIndexesDesc = Record<string, Comparable>;

@@ -5,25 +5,25 @@ import {
   BlockSeq,
   IBufferFacade,
 } from "../../deps.ts";
-import { Comparable } from "./../compare.ts";
+import { Comparable } from "../Comparable.ts";
+import { RawPageAddr } from "../PageAddr.ts";
 import {
-  PageAddr,
-  PageType,
   KEY_BLOCK,
   ADDR_BLOCK,
   ADDR_LIST_BLOCK,
+  IndexesPageType,
 } from "./utils.ts";
 
 const INDEX_LEAF_HEADER = [
-  FixedBlockList.named("parent", Block.uint16), // if 0 then is tree root
-  FixedBlockList.named("prevSibling", Block.uint16),
-  FixedBlockList.named("nextSibling", Block.uint16),
+  FixedBlockList.named("parent", Block.uint32), // if 0 then is tree root
+  FixedBlockList.named("prevSibling", Block.uint32),
+  FixedBlockList.named("nextSibling", Block.uint32),
   FixedBlockList.named("count", Block.uint16),
 ] as const;
 
 export type IndexLeafDataTuple = readonly [
   Comparable,
-  PageAddr | Array<PageAddr>
+  RawPageAddr | Array<RawPageAddr>
 ];
 
 export type IndexLeafData = Array<IndexLeafDataTuple>;
@@ -39,8 +39,10 @@ export class IndexLeafPage {
 
   constructor(page: Page, order: number, unique: boolean) {
     this.order = order;
-    const type = unique ? PageType.IndexUniqueLeaf : PageType.IndexLeaf;
-    if (page.type === PageType.Empty) {
+    const type = unique
+      ? IndexesPageType.IndexTreeUniqueLeaf
+      : IndexesPageType.IndexTreeLeaf;
+    if (page.type === IndexesPageType.Empty) {
       // init page
       page.type = type;
     }
@@ -132,9 +134,9 @@ export class IndexLeafPage {
     for (const [key, value] of data) {
       seq.write(KEY_BLOCK.write, key);
       if (this.unique) {
-        seq.write(ADDR_BLOCK.write, value as PageAddr);
+        seq.write(ADDR_BLOCK.write, value as RawPageAddr);
       } else {
-        seq.write(ADDR_LIST_BLOCK.write, value as Array<PageAddr>);
+        seq.write(ADDR_LIST_BLOCK.write, value as Array<RawPageAddr>);
       }
     }
   }

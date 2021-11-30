@@ -1,5 +1,5 @@
-import { ZenDB } from "../src/ZenDB.ts";
-import { resolve } from "https://deno.land/std@0.115.1/path/mod.ts";
+import { ZenDB } from "../mod.ts";
+import { resolve } from "https://deno.land/std@0.116.0/path/mod.ts";
 import { customAlphabet } from "https://deno.land/x/nanoid@v3.0.0/mod.ts";
 
 const path = resolve(Deno.cwd(), "example", "demo.db");
@@ -53,6 +53,16 @@ insert(100, "Yolo");
 db.save();
 
 db.debug();
+
+// const item = db
+//   .query()
+//   .select("id", (iq) => iq.filter(filters.eq("hello")))
+//   .limit(20)
+//   .one()
+//   .delete()
+//   .transform((v) => v.age)
+//   // .update()
+//   .value();
 
 // const item = db.query((pipe) =>
 //   pipe

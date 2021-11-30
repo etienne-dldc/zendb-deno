@@ -1,4 +1,5 @@
 export { nanoid } from "https://deno.land/x/nanoid@v3.0.0/mod.ts";
+export { extname } from "https://deno.land/std@0.116.0/path/mod.ts";
 export {
   PagedFile,
   Block,

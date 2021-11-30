@@ -1,8 +1,9 @@
 import { FixedBlockList, Block, Page, IBufferFacade } from "../../deps.ts";
-import { ADDR_BLOCK, PageAddr, PageType } from "./utils.ts";
+import { RawPageAddr } from "../PageAddr.ts";
+import { ADDR_BLOCK, StoragePageType } from "./utils.ts";
 
 const DATA_LIST_HEADER = [
-  FixedBlockList.named("itemsCount", Block.uint16),
+  FixedBlockList.named("itemsCount", Block.uint32),
 ] as const;
 
 export class DataListPage {
@@ -14,12 +15,12 @@ export class DataListPage {
     this.page = page;
     this.blocks = new FixedBlockList(DATA_LIST_HEADER, page);
     this.content = this.blocks.selectRest();
-    if (page.type === PageType.Empty) {
+    if (page.type === StoragePageType.Empty) {
       // init page
-      page.type = PageType.DataList;
+      page.type = StoragePageType.DataList;
       this.blocks.write("itemsCount", 0);
     }
-    if (page.type !== PageType.DataList) {
+    if (page.type !== StoragePageType.DataList) {
       throw new Error("Invalid page type");
     }
   }
@@ -58,7 +59,7 @@ export class DataListPage {
     this.blocks.write("itemsCount", this.blocks.read("itemsCount") + 1);
   }
 
-  public remove(removeAddr: PageAddr): void {
+  public remove(removeAddr: RawPageAddr): void {
     const readMaxCount = Math.floor(
       this.content.byteLength / ADDR_BLOCK.read.size
     );
@@ -72,11 +73,11 @@ export class DataListPage {
     this.blocks.write("itemsCount", this.blocks.read("itemsCount") - 1);
   }
 
-  public getAll(): Array<PageAddr> {
+  public getAll(): Array<RawPageAddr> {
     const readMaxCount = Math.floor(
       this.content.byteLength / ADDR_BLOCK.read.size
     );
-    const result: Array<PageAddr> = [];
+    const result: Array<RawPageAddr> = [];
     for (let i = 0; i < readMaxCount; i++) {
       const addr = ADDR_BLOCK.read.read(this.content, i * ADDR_BLOCK.read.size);
       if (addr !== 0) {
@@ -84,5 +85,17 @@ export class DataListPage {
       }
     }
     return result;
+  }
+
+  public forEach(onAddr: (addr: RawPageAddr) => void): void {
+    const readMaxCount = Math.floor(
+      this.content.byteLength / ADDR_BLOCK.read.size
+    );
+    for (let i = 0; i < readMaxCount; i++) {
+      const addr = ADDR_BLOCK.read.read(this.content, i * ADDR_BLOCK.read.size);
+      if (addr !== 0) {
+        onAddr(addr);
+      }
+    }
   }
 }

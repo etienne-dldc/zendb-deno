@@ -1,107 +1,107 @@
-// deno-lint-ignore-file no-explicit-any
-import { PagedFile, Page } from "../deps.ts";
+import { PagedFile, Page, extname } from "../deps.ts";
 import { LeastRecentlyUsedMap } from "./LeastRecentlyUsedMap.ts";
-import { Comparable, compareOrder } from "./compare.ts";
+import { Comparable } from "./Comparable.ts";
 import { DataItemPage } from "./pages/DataItemPage.ts";
 import { DataListPage } from "./pages/DataListPage.ts";
-import { IndexInternalPage } from "./pages/IndexInternalPage.ts";
-import {
-  IndexLeafPage,
-  IndexLeafData,
-  IndexLeafDataTuple,
-} from "./pages/IndexLeafPage.ts";
-import { RootDataIndex, RootPage } from "./pages/RootPage.ts";
-import { PageAny, PageAddr, IndexPage, PageType } from "./pages/utils.ts";
-import {
-  QueryBuilderFnResult,
-  QueryBuilder,
-  QueryBuilderResult,
-} from "./QueryBuilder.ts";
-import {
-  IIndexesDesc,
-  IIndexFn,
-  IIndexObj,
-  IIndexResolved,
-  IIndexes,
-  IIndex,
-} from "./types.d.ts";
-
-export type InsertResult = null | {
-  type: "splitted";
-  orphanPage: IndexPage;
-  orphanFirstKey: Comparable;
-};
+import { StorageRootPage } from "./pages/StorageRootPage.ts";
+import { StoragePageAny } from "./pages/utils.ts";
+import { PageAddr, RawPageAddr } from "./PageAddr.ts";
+import { QueryBuilderRoot } from "./query/QueryBuilderRoot.ts";
+import { QueryBuilderParentRef } from "./query/utils.ts";
+import { IIndexesDesc, IIndexFn, IIndexObj, IIndexes } from "./types.d.ts";
+import { ZenDBIndexes } from "./ZenDBIndexes.ts";
 
 export type ZenDBOptions = {
   pageSize?: number;
   cacheSize?: number;
   create?: boolean;
-  treeOrder?: number;
+  indexesPath?: string;
+  indexesPageSize?: number;
+  indexesCacheSize?: number;
+  createIndexes?: boolean;
+  indexesTreeOrder?: number;
 };
 
 export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
   public static unique<T, Out extends Comparable>(
-    fn: IIndexFn<T, Out>
+    key: IIndexFn<T, Out>
   ): IIndexObj<T, Out> {
-    return { unique: true, fn };
+    return { unique: true, key };
   }
 
-  private file: PagedFile;
-  private nodesCache = new LeastRecentlyUsedMap<number, PageAny>();
-  private indexes: {
-    [K in keyof IndexesDesc]: IIndexResolved<T, IndexesDesc[K]>;
-  };
+  private readonly file: PagedFile;
+  private readonly indexes: ZenDBIndexes<T, IndexesDesc>;
+  private readonly nodesCache = new LeastRecentlyUsedMap<
+    number,
+    StoragePageAny
+  >();
+
+  private readonly queryBuilderParentRef: QueryBuilderParentRef<T>;
 
   constructor(
     path: string,
     indexes: IIndexes<T, IndexesDesc>,
-    { cacheSize, pageSize, create, treeOrder = 20 }: ZenDBOptions = {}
+    {
+      cacheSize,
+      pageSize,
+      create,
+      indexesPath,
+      createIndexes,
+      indexesCacheSize,
+      indexesPageSize,
+      indexesTreeOrder,
+    }: ZenDBOptions = {}
   ) {
     this.file = new PagedFile(path, {
       cacheSize,
       pageSize,
       create,
     });
-    this.indexes = Object.fromEntries(
-      Object.entries<IIndex<T, any>>(indexes).map(
-        ([indexName, def]): [string, IIndexResolved<T, any>] => {
-          return [
-            indexName,
-            typeof def === "function"
-              ? { unique: false, treeOrder, fn: def }
-              : { unique: false, treeOrder, ...def },
-          ];
-        }
-      )
-    ) as any;
+    const fileExt = extname(path);
+    const filePathBase = path.slice(0, path.length - fileExt.length);
+    const indexPathResolved =
+      indexesPath ?? filePathBase + ".indexes" + fileExt;
+    this.indexes = new ZenDBIndexes(indexPathResolved, indexes, {
+      cacheSize: indexesCacheSize,
+      pageSize: indexesPageSize,
+      create: createIndexes,
+      treeOrder: indexesTreeOrder,
+    });
+    this.queryBuilderParentRef = {
+      getData: this.getData.bind(this),
+      insertInternal: this.insertInternal.bind(this),
+      deleteInternal: this.deleteInternal.bind(this),
+      updateInternal: this.updateInternal.bind(this),
+    };
+    if (this.file.size > 0 && this.indexes.empty) {
+      // file exists but indexes are empty
+      // => populate indexes
+      const list = this.getDataListPage();
+      list.forEach((addr) => {
+        this.indexes.insert(addr, this.getData(addr));
+      });
+    }
   }
 
-  public insert(value: T): void {
-    const mana = this.file.createManager();
-    const itemSubPage = mana.createPage();
-    const itemPage = new DataItemPage(itemSubPage);
-    itemPage.data = value;
-    const list = this.getDataListPage();
-    list.add(itemPage.addr);
-    const indexesEntries = Object.entries<IIndexResolved<T, any>>(this.indexes);
-    for (const [indexName, indexDef] of indexesEntries) {
-      const key = indexDef.fn(value);
-      this.insertInIndex(indexName, key, itemPage.addr);
-    }
+  public insert(value: T): PageAddr {
+    return this.query().insertOne(value).key();
   }
 
   public save() {
     this.file.save();
+    this.indexes.save();
   }
 
   public close() {
     this.file.close();
+    this.indexes.close();
   }
 
-  public query<Out extends QueryBuilderFnResult<IndexesDesc>>(
-    _fn: (builder: QueryBuilder<T, IndexesDesc>) => Out
-  ): Out extends QueryBuilderResult<infer Res> ? Res : void {
-    throw new Error("Not implemented");
+  public query(): QueryBuilderRoot<T, IndexesDesc> {
+    setTimeout(() => {
+      console.log("TODO: Cleanup cache after Query ??");
+    }, 0);
+    return new QueryBuilderRoot(this.queryBuilderParentRef);
   }
 
   public debug() {
@@ -112,96 +112,51 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
       const data = this.getDataItemPage(addr);
       console.info(`- ${addr}: ${JSON.stringify(data.data)}`);
     });
-    const indexesEntries = Object.entries<IIndexResolved<T, any>>(this.indexes);
-    const root = this.getRootPage();
-    for (const [indexName, indefDef] of indexesEntries) {
-      const indexTree = this.getIndexPage(
-        root.data.indexes[indexName].addr,
-        indefDef.treeOrder
-      );
-      this.debugIndexPage(
-        indexTree,
-        "  ",
-        `\nIndex: ${indexName}${indefDef.unique ? "(unique)" : ""} `
-      );
-    }
   }
 
   // PRIVATE
 
-  private debugIndexPage(
-    page: IndexPage,
-    prefix: string,
-    headPrefix: string = prefix
-  ): void {
-    if (page instanceof IndexLeafPage) {
-      console.info(
-        headPrefix + `Leaf [${page.addr}] ${page.isRoot ? "(root)" : ""}`
-      );
-      page.data.forEach(([key, value]) => {
-        console.info(
-          prefix +
-            `- ${String(key)}: ${
-              Array.isArray(value) ? `[${value.join(", ")}]` : value
-            }`
-        );
-      });
-      return;
-    }
-    if (page instanceof IndexInternalPage) {
-      console.info(
-        headPrefix + `Internal [${page.addr}] ${page.isRoot ? "(root)" : ""}`
-      );
-      const [headChild, items] = page.data;
-      this.debugIndexPage(
-        this.getIndexPage(headChild, page.order),
-        prefix + "   ",
-        prefix + ` • `
-      );
-      items.forEach(([key, child]) => {
-        console.info(prefix + ` • Key: ${String(key)}`);
-        this.debugIndexPage(
-          this.getIndexPage(child, page.order),
-          prefix + "   ",
-          prefix + ` • `
-        );
-      });
-      return;
-    }
-    throw new Error("Unhandled type");
+  private insertInternal(value: T): RawPageAddr {
+    const mana = this.file.createManager();
+    const itemSubPage = mana.createPage();
+    const itemPage = new DataItemPage(itemSubPage);
+    itemPage.data = value;
+    const list = this.getDataListPage();
+    list.add(itemPage.addr);
+    this.indexes.insert(itemPage.addr, value);
+    return itemPage.addr;
   }
 
-  private getDataItemPage(addr: number): DataItemPage {
+  private deleteInternal(_addr: RawPageAddr): void {
+    // const
+  }
+
+  private updateInternal(
+    _addr: RawPageAddr,
+    _update: T | ((obj: T) => T)
+  ): void {
+    throw new Error("Not Implemented");
+  }
+
+  private getData(addr: RawPageAddr): T {
+    return this.getDataItemPage(addr).data;
+  }
+
+  private getDataItemPage(addr: RawPageAddr): DataItemPage {
     return this.getPage(addr, (page) => new DataItemPage(page));
   }
 
-  private getRootPage() {
+  private getRootPage(): StorageRootPage {
     return this.getPage(0, (page) => {
       if (page.isRoot === false) {
         throw new Error(`Expected root page`);
       }
       const fileIsEmpty = this.file.size === 0;
-      const root = new RootPage(page, fileIsEmpty);
+      const root = new StorageRootPage(page, fileIsEmpty);
       if (fileIsEmpty) {
         const itemsInternalPage = this.file.createPage();
         const itemsPage = new DataListPage(itemsInternalPage);
-        const indexes: Record<keyof IndexesDesc, RootDataIndex> = {} as any;
-        for (const [indexName, indexObj] of Object.entries<
-          IIndexResolved<T, any>
-        >(this.indexes)) {
-          const treeRootPage = this.file.createPage();
-          const tree = new IndexLeafPage(
-            treeRootPage,
-            indexObj.treeOrder,
-            indexObj.unique
-          );
-          indexes[indexName as keyof IndexesDesc] = {
-            addr: tree.addr,
-            order: indexObj.treeOrder,
-            unique: indexObj.unique,
-          };
-        }
-        root.data = { items: itemsPage.addr, indexes: indexes };
+        root.data = { items: itemsPage.addr };
       }
       return root;
     });
@@ -214,17 +169,7 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
     });
   }
 
-  private getIndexLeafPage(
-    addr: PageAddr,
-    order: number,
-    unique: boolean
-  ): IndexLeafPage {
-    return this.getPage(addr, (page) => {
-      return new IndexLeafPage(page, order, unique);
-    });
-  }
-
-  private getPage<T extends PageAny>(
+  private getPage<T extends StoragePageAny>(
     addr: number,
     createNode: (page: Page) => T
   ): T {
@@ -237,229 +182,5 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
     const node = createNode(page);
     this.nodesCache.set(addr, node);
     return node;
-  }
-
-  private getIndexPage(addr: number, order: number): IndexPage {
-    return this.getPage(addr, (page) => {
-      if (page.type === PageType.IndexInternal) {
-        return new IndexInternalPage(page, order);
-      }
-      if (page.type === PageType.IndexLeaf) {
-        return new IndexLeafPage(page, order, false);
-      }
-      if (page.type === PageType.IndexUniqueLeaf) {
-        return new IndexLeafPage(page, order, true);
-      }
-      throw new Error(`Unexpected page type`);
-    });
-  }
-
-  private insertInIndex(
-    indexName: keyof IndexesDesc,
-    key: Comparable,
-    value: PageAddr
-  ) {
-    const root = this.getRootPage();
-    const rootData = root.data;
-    const indexObj = rootData.indexes[indexName as string];
-    const treeRoot = this.getIndexPage(indexObj.addr, indexObj.order);
-    const result = this.insertInIndexPage(treeRoot, key, value);
-    if (result === null) {
-      return;
-    }
-    if (result.type === "splitted") {
-      // root splitted => create new root
-      const newRoot = new IndexInternalPage(
-        this.file.createPage(),
-        indexObj.order
-      );
-      newRoot.data = [
-        treeRoot.addr,
-        [[result.orphanFirstKey, result.orphanPage.addr]],
-      ];
-      treeRoot.parent = newRoot.addr;
-      result.orphanPage.parent = newRoot.addr;
-      // update root index addr
-      root.data = {
-        ...rootData,
-        indexes: {
-          ...rootData.indexes,
-          [indexName as string]: {
-            ...rootData.indexes[indexName as string],
-            addr: newRoot.addr,
-          },
-        },
-      };
-      return;
-    }
-    throw new Error("Unexpected");
-  }
-
-  private insertInIndexPage(
-    page: IndexPage,
-    key: Comparable,
-    value: PageAddr
-  ): InsertResult {
-    if (page instanceof IndexLeafPage) {
-      return this.insertInIndexLeafPage(page, key, value);
-    }
-    return this.insertInIndexInternalPage(page, key, value);
-  }
-
-  private insertInIndexLeafPage(
-    page: IndexLeafPage,
-    key: Comparable,
-    addr: PageAddr
-  ): InsertResult {
-    const data = page.data;
-    const existsIndex = data.findIndex(([k]) => compareOrder(k, "equal", key));
-    if (existsIndex >= 0) {
-      // add to existing leaf item
-      const exists = data[existsIndex];
-      if (page.unique) {
-        throw new Error(`Unique error`);
-      }
-      const dataCopy = data.slice();
-      const currentList = exists[1] as Array<number>;
-      if (currentList.includes(addr)) {
-        throw new Error(`Addr already in index ?`);
-      }
-      dataCopy[existsIndex] = [
-        exists[0],
-        this.insertInAddrList(currentList, addr),
-      ];
-      page.data = dataCopy;
-      // nothing more to do
-      return null;
-    }
-    // insert
-    const insertItem: IndexLeafDataTuple = [key, page.unique ? addr : [addr]];
-    const newItems = this.insertInLeafData(data, insertItem, page.isRoot);
-    if (newItems.length <= page.maxKeys) {
-      // no overflow
-      page.data = newItems;
-      return null;
-    }
-    // need to split
-    const midIndex = Math.floor(newItems.length / 2);
-    const leftItems = newItems.slice(0, midIndex);
-    const rightItems = newItems.slice(midIndex);
-    const orphanPage = new IndexLeafPage(
-      this.file.createPage(),
-      page.order,
-      page.unique
-    );
-    const nextSibling = this.getIndexLeafPage(
-      page.nextSibling,
-      page.order,
-      page.unique
-    );
-    orphanPage.data = rightItems;
-    page.data = leftItems;
-    orphanPage.prevSibling = page.addr;
-    orphanPage.nextSibling = page.nextSibling;
-    page.nextSibling = orphanPage.addr;
-    nextSibling.prevSibling = orphanPage.addr;
-    return {
-      type: "splitted",
-      orphanPage,
-      orphanFirstKey: rightItems[0][0],
-    };
-  }
-
-  private insertInIndexInternalPage(
-    page: IndexInternalPage,
-    key: Comparable,
-    addr: PageAddr
-  ): InsertResult {
-    const sub = page.findChild(key);
-    const subTree = this.getIndexPage(sub.addr, page.order);
-    const res = this.insertInIndexPage(subTree, key, addr);
-    if (res === null) {
-      return null;
-    }
-    if (res.type === "splitted") {
-      const [headChild, items] = page.data;
-      const newtItems = items.slice();
-      newtItems.splice(sub.index + 1, 0, [
-        res.orphanFirstKey,
-        res.orphanPage.addr,
-      ]);
-      res.orphanPage.parent = page.addr;
-      if (newtItems.length <= page.maxKeys) {
-        // no overflow
-        page.data = [headChild, newtItems];
-        return null;
-      }
-      // split
-      const midIndex = Math.floor(newtItems.length / 2); // offset by -1 for headChild
-      const leftItems = newtItems.slice(0, midIndex);
-      const midItem = newtItems[midIndex];
-      const rightItems = newtItems.slice(midIndex + 1);
-      const orphanPage = new IndexInternalPage(
-        this.file.createPage(),
-        page.order
-      );
-      orphanPage.data = [midItem[1], rightItems];
-      page.data = [headChild, leftItems];
-      return {
-        type: "splitted",
-        orphanPage: orphanPage,
-        orphanFirstKey: midItem[0],
-      };
-    }
-    throw new Error("Unexpected");
-  }
-
-  private insertInAddrList(
-    list: Array<PageAddr>,
-    addr: PageAddr
-  ): Array<PageAddr> {
-    const copy: Array<number> = [];
-    let inserted = false;
-    for (const a of list) {
-      if (!inserted) {
-        const diff = a - addr;
-        if (diff > 0) {
-          inserted = true;
-          copy.push(addr);
-        }
-      }
-      copy.push(a);
-    }
-    if (!inserted) {
-      copy.push(addr);
-    }
-    return copy;
-  }
-
-  private insertInLeafData(
-    data: IndexLeafData,
-    newItem: IndexLeafDataTuple,
-    isRoot: boolean
-  ): IndexLeafData {
-    const [newKey] = newItem;
-    if (isRoot && data.length === 0) {
-      return [newItem];
-    }
-    const firstKey = data[0][0];
-    if (compareOrder(newKey, "isBefore", firstKey)) {
-      return [newItem, ...data];
-    }
-    const updatedData: IndexLeafData = [];
-    let inserted = false;
-    for (const item of data) {
-      if (!inserted) {
-        if (compareOrder(newKey, "isBefore", item[0])) {
-          inserted = true;
-          updatedData.push(newItem);
-        }
-      }
-      updatedData.push(item);
-    }
-    if (!inserted) {
-      updatedData.push(newItem);
-    }
-    return updatedData;
   }
 }

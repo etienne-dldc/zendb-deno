@@ -1,20 +1,21 @@
 import { FixedBlockList, Block, Page, BlockSeq } from "../../deps.ts";
-import { Comparable, compareOrder } from "./../compare.ts";
-import { PageAddr, PageType, ADDR_BLOCK, KEY_BLOCK } from "./utils.ts";
+import { Comparable, compareOrder } from "../Comparable.ts";
+import { RawPageAddr } from "../PageAddr.ts";
+import { IndexesPageType, ADDR_BLOCK, KEY_BLOCK } from "./utils.ts";
 
 export type IndexInternalDataTuple = readonly [
   key: Comparable,
-  child: PageAddr
+  child: RawPageAddr
 ];
 
 export type IndexInternalData = [
-  headChild: PageAddr,
+  headChild: RawPageAddr,
   items: ReadonlyArray<IndexInternalDataTuple>
 ];
 
 const INDEX_INTERNAL_HEADER = [
-  FixedBlockList.named("parent", Block.uint16),
-  FixedBlockList.named("keysCount", Block.uint16),
+  FixedBlockList.named("parent", Block.uint32),
+  FixedBlockList.named("keysCount", Block.uint32),
 ] as const;
 
 export class IndexInternalPage {
@@ -28,11 +29,11 @@ export class IndexInternalPage {
     this.page = page;
     this.order = order;
     this.blocks = new FixedBlockList(INDEX_INTERNAL_HEADER, page);
-    if (page.type === PageType.Empty) {
-      page.type = PageType.IndexInternal;
+    if (page.type === IndexesPageType.Empty) {
+      page.type = IndexesPageType.IndexTreeInternal;
       // TODO: Init ?
     }
-    if (page.type !== PageType.IndexInternal) {
+    if (page.type !== IndexesPageType.IndexTreeInternal) {
       throw new Error(`Page type mismatch`);
     }
   }
@@ -49,16 +50,20 @@ export class IndexInternalPage {
     return this.page.addr;
   }
 
-  public get min(): number {
-    return this.isRoot ? 2 : Math.ceil(this.order / 2);
+  // public get min(): number {
+  //   return this.isRoot ? 2 : Math.ceil(this.order / 2);
+  // }
+
+  // public get max(): number {
+  //   return this.order;
+  // }
+
+  public get minKeys(): number {
+    return this.isRoot ? 1 : Math.ceil(this.order / 2) - 1;
   }
 
   public get maxKeys(): number {
     return this.order - 1;
-  }
-
-  public get max(): number {
-    return this.order;
   }
 
   public get closed() {
@@ -108,19 +113,58 @@ export class IndexInternalPage {
 
   // return index and addr of child for key
   // returns index: -1 for headChild
-  public findChild(val: Comparable): { addr: PageAddr; index: number } {
+  public findChild(val: Comparable): {
+    addr: RawPageAddr;
+    index: number;
+    key: Comparable | null;
+  } {
     const [headChild, items] = this.data;
     const firstKey = items[0][0];
     if (compareOrder(val, "isBefore", firstKey)) {
-      return { addr: headChild, index: -1 };
+      return { addr: headChild, index: -1, key: null };
     }
     for (let index = 0; index < items.length; index++) {
       const [key, child] = items[index];
       if (compareOrder(key, "isAfterOrEqual", val)) {
-        return { addr: child, index };
+        return { addr: child, index, key };
       }
     }
     const index = items.length - 1;
-    return { index, addr: items[index][1] };
+    return { index, addr: items[index][1], key: items[index][0] };
+  }
+
+  public getLeftChildAddr(index: number): RawPageAddr | null {
+    if (index === -1) {
+      return null;
+    }
+    const [headChild, items] = this.data;
+    if (index === 0) {
+      return headChild;
+    }
+    const item = items[index - 1];
+    if (!item) {
+      return null;
+    }
+    return item[1];
+  }
+
+  public getRightChildAddr(index: number): RawPageAddr | null {
+    const [_headChild, items] = this.data;
+    // this works because headchild is -1 which will return item at index 0
+    const item = items[index + 1];
+    if (!item) {
+      return null;
+    }
+    return item[1];
+  }
+
+  public setKeyAtIndex(index: number, key: Comparable) {
+    const [headChild, items] = this.data;
+    if (index < 0 || index >= items.length) {
+      return;
+    }
+    const nextItems = items.slice();
+    nextItems[index] = [key, nextItems[index][1]];
+    this.data = [headChild, nextItems];
   }
 }

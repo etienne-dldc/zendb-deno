@@ -1,6 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
-import { compare, MAX, MIN } from "./CompareFn.ts";
-import { assertEquals, assert } from "https://deno.land/std/testing/asserts.ts";
+import { compare, MAX, MIN } from "./Comparable.ts";
+import {
+  assertEquals,
+  assert,
+} from "https://deno.land/std@0.116.0/testing/asserts.ts";
 
 function sort(
   arr: Array<any>,
