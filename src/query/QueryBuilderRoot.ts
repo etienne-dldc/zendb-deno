@@ -1,16 +1,15 @@
 import { PageAddr, RawPageAddr } from "../PageAddr.ts";
 import { IIndexesDesc } from "../types.d.ts";
 import { QueryBuilderCollection } from "./QueryBuilderCollection.ts";
-import {
-  QueryBuilderIndex,
-  QueryBuilderIndexData,
-} from "./QueryBuilderIndex.ts";
+import { QueryBuilderIndex } from "./QueryBuilderIndex.ts";
 import { QueryBuilderSingle } from "./QueryBuilderSingle.ts";
 import {
-  arrayToGetNext,
+  arrayToGetGetTraverser,
   QUERY_BUILDER_INTERNAL,
   wrap,
   QueryBuilderParentRef,
+  Traverser,
+  IndexSelectData,
 } from "./utils.ts";
 
 type IndexBuiderFn<V> = (builder: QueryBuilderIndex<V>) => QueryBuilderIndex<V>;
@@ -35,7 +34,7 @@ export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
     }
     return new QueryBuilderCollection<T, IdxDesc>(
       this.parent,
-      arrayToGetNext(items)
+      arrayToGetGetTraverser(items)
     );
   }
 
@@ -54,18 +53,24 @@ export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
   }
 
   select<N extends keyof IdxDesc>(
-    _indexName: N,
-    config: QueryBuilderIndexData<IdxDesc[N]> | IndexBuiderFn<IdxDesc[N]>
+    indexName: N,
+    config: IndexSelectData<IdxDesc[N]> | IndexBuiderFn<IdxDesc[N]>
   ): QueryBuilderCollection<T, IdxDesc> {
-    const _configResolved =
+    const configResolved =
       typeof config === "function"
         ? config(new QueryBuilderIndex({}))[QUERY_BUILDER_INTERNAL]
         : config;
-    throw new Error("Not Implemented");
+    return new QueryBuilderCollection<T, IdxDesc>(
+      this.parent,
+      this.parent.indexSelect(indexName, configResolved)
+    );
   }
 
   selectAll(): QueryBuilderCollection<T, IdxDesc> {
-    throw new Error("Not Implemented");
+    return new QueryBuilderCollection<T, IdxDesc>(
+      this.parent,
+      this.parent.getAllTraverser
+    );
   }
 
   findOne(addr: PageAddr): QueryBuilderSingle<T, false> {
@@ -74,7 +79,22 @@ export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
     return new QueryBuilderSingle<T, false>(this.parent, addr.addr, wrap(data));
   }
 
-  findAll(..._addrs: Array<PageAddr>): this {
-    throw new Error("Not Implemented");
+  findAll(...addrs: Array<PageAddr>): QueryBuilderCollection<T, IdxDesc> {
+    return new QueryBuilderCollection<T, IdxDesc>(
+      this.parent,
+      (): Traverser<T> => {
+        let index = 0;
+        return () => {
+          if (index >= addrs.length) {
+            return null;
+          }
+          index++;
+          const addr = addrs[index];
+          // get data at this stage to throw if invalid addr
+          const data = this.parent.getData(addr.addr);
+          return { addr: addr.addr, data: wrap(data) };
+        };
+      }
+    );
   }
 }

@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { Page, PagedFile } from "../deps.ts";
-import { Comparable } from "./Comparable.ts";
+import { Comparable, compareOrder } from "./Comparable.ts";
 import { LeastRecentlyUsedMap } from "./LeastRecentlyUsedMap.ts";
 import { RawPageAddr } from "./PageAddr.ts";
 import { IndexesRootPage, RootDataIndex } from "./pages/IndexesRootPage.ts";
@@ -11,6 +11,7 @@ import {
   IndexesPageAny,
   IndexesPageType,
 } from "./pages/utils.ts";
+import { GetTraverser, IndexSelectData } from "./query/utils.ts";
 import { treeDelete } from "./tree/treeDelete.ts";
 import { treeInsert } from "./tree/treeInsert.ts";
 import { TreeParentRef } from "./tree/types.d.ts";
@@ -84,6 +85,54 @@ export class ZenDBIndexes<T, IndexesDesc extends IIndexesDesc> {
         this.insertInIndex(indexName, key, addr);
       }
     }
+  }
+
+  public update(addr: RawPageAddr, prev: T, updated: T): void {
+    const indexesEntries = Object.entries<IIndexResolved<T, any>>(this.indexes);
+    for (const [indexName, indexDef] of indexesEntries) {
+      const prevKeep = indexDef.filter ? indexDef.filter(prev) : true;
+      const nextKeep = indexDef.filter ? indexDef.filter(updated) : true;
+      if (!prevKeep && !nextKeep) {
+        continue;
+      }
+      const prevKey = indexDef.key(prev);
+      const nextKey = indexDef.key(updated);
+      const sameKey = compareOrder(prevKey, "equal", nextKey);
+      if (sameKey) {
+        if (!prevKeep && nextKeep) {
+          this.insertInIndex(indexName, nextKey, addr);
+        }
+        if (prevKeep && !nextKeep) {
+          this.deleteInIndex(indexName, prevKey, addr);
+        }
+      } else {
+        if (prevKeep) {
+          this.deleteInIndex(indexName, prevKey, addr);
+        }
+        if (nextKeep) {
+          this.insertInIndex(indexName, nextKey, addr);
+        }
+      }
+    }
+  }
+
+  public delete(addr: RawPageAddr, value: T): void {
+    const indexesEntries = Object.entries<IIndexResolved<T, any>>(this.indexes);
+    for (const [indexName, indexDef] of indexesEntries) {
+      const keep = indexDef.filter ? indexDef.filter(value) : true;
+      if (keep) {
+        const key = indexDef.key(value);
+        this.deleteInIndex(indexName, key, addr);
+      }
+    }
+  }
+
+  public select<N extends keyof IndexesDesc>(
+    indexName: N,
+    config: IndexSelectData<IndexesDesc[N]>
+  ): GetTraverser<T> {
+    console.log({ indexName, config });
+    throw new Error("Not implemented");
   }
 
   public save() {

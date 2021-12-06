@@ -45,4 +45,8 @@ export class DataItemPage {
     this.dataCache = data;
     VALUE_BLOCK.write.write(this.page, 0, data);
   }
+
+  public delete() {
+    this.page.delete();
+  }
 }

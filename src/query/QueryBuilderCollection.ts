@@ -3,25 +3,30 @@ import { IIndexesDesc } from "../types.d.ts";
 import { QueryBuilderSingle } from "./QueryBuilderSingle.ts";
 import { QUERY_BUILDER_INTERNAL } from "./utils.ts";
 import { PageAddr } from "../PageAddr.ts";
-import { Direction, GetNext, Next, QueryBuilderParentRef } from "./utils.ts";
+import {
+  Direction,
+  Traverser,
+  GetTraverser,
+  QueryBuilderParentRef,
+} from "./utils.ts";
 
 export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
   private readonly parent: QueryBuilderParentRef<T>;
 
-  [QUERY_BUILDER_INTERNAL]: GetNext<T>;
+  [QUERY_BUILDER_INTERNAL]: GetTraverser<T>;
 
-  constructor(parent: QueryBuilderParentRef<T>, getNext: GetNext<T>) {
+  constructor(parent: QueryBuilderParentRef<T>, getTraverser: GetTraverser<T>) {
     this.parent = parent;
-    this[QUERY_BUILDER_INTERNAL] = getNext;
+    this[QUERY_BUILDER_INTERNAL] = getTraverser;
   }
 
-  private getNext(): Next<T> {
+  private getTraverser(): Traverser<T> {
     return this[QUERY_BUILDER_INTERNAL]();
   }
 
   offsetByCount(offset: number): QueryBuilderCollection<T, IdxDesc> {
     return new QueryBuilderCollection<T, IdxDesc>(this.parent, () => {
-      const next = this.getNext();
+      const traverser = this.getTraverser();
       let currentOffset = 0;
       let ended = false;
       return () => {
@@ -29,21 +34,21 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
           return null;
         }
         while (currentOffset < offset) {
-          const res = next();
+          const res = traverser();
           if (res === null) {
             ended = true;
             return null;
           }
           currentOffset++;
         }
-        return next();
+        return traverser();
       };
     });
   }
 
   offsetByAddr(addr: PageAddr): QueryBuilderCollection<T, IdxDesc> {
     return new QueryBuilderCollection<T, IdxDesc>(this.parent, () => {
-      const next = this.getNext();
+      const traverser = this.getTraverser();
       let found = false;
       let ended = false;
       return () => {
@@ -51,7 +56,7 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
           return null;
         }
         while (found === false) {
-          const res = next();
+          const res = traverser();
           if (res === null) {
             ended = true;
             return null;
@@ -59,16 +64,16 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
           if (res.addr === addr.addr) {
             found = true;
           }
-          return next();
+          return traverser();
         }
-        return next();
+        return traverser();
       };
     });
   }
 
   limit(limit: number): QueryBuilderCollection<T, IdxDesc> {
     return new QueryBuilderCollection<T, IdxDesc>(this.parent, () => {
-      const next = this.getNext();
+      const traverser = this.getTraverser();
       let count = 0;
       let ended = false;
       return () => {
@@ -78,13 +83,13 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
         if (count >= limit) {
           return null;
         }
-        const res = next();
+        const res = traverser();
         if (res === null) {
           ended = true;
           return null;
         }
         count++;
-        return next();
+        return traverser();
       };
     });
   }
@@ -126,12 +131,12 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
 
   // throw if more count is not one
   one(): QueryBuilderSingle<T, false> {
-    const next = this.getNext();
-    const first = next();
+    const traverser = this.getTraverser();
+    const first = traverser();
     if (first === null) {
       throw new Error(`.one() expected one, received none`);
     }
-    const second = next();
+    const second = traverser();
     if (second !== null) {
       throw new Error(`.one() expected one, received more`);
     }
@@ -144,12 +149,12 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
 
   // throw if count > 1
   maybeOne(): QueryBuilderSingle<T, true> {
-    const next = this.getNext();
-    const first = next();
+    const traverser = this.getTraverser();
+    const first = traverser();
     if (first === null) {
       return new QueryBuilderSingle<T, true>(this.parent, null, null);
     }
-    const second = next();
+    const second = traverser();
     if (second !== null) {
       throw new Error(`.maybeOne() expected one, received more`);
     }
@@ -158,8 +163,8 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
 
   // throw if count < 1
   first(): QueryBuilderSingle<T, false> {
-    const next = this.getNext();
-    const first = next();
+    const traverser = this.getTraverser();
+    const first = traverser();
     if (first === null) {
       throw new Error(`.first() expected at least one, received none`);
     }
@@ -172,8 +177,8 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
 
   // never throw
   maybeFirst(): QueryBuilderSingle<T, true> {
-    const next = this.getNext();
-    const first = next();
+    const traverser = this.getTraverser();
+    const first = traverser();
     if (first === null) {
       return new QueryBuilderSingle<T, true>(this.parent, null, null);
     }
@@ -195,14 +200,14 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
   values(): Iterable<T> {
     return {
       [Symbol.iterator]: () => {
-        const next = this.getNext();
-        let nextRes = next();
+        const traverser = this.getTraverser();
+        let nextRes = traverser();
         return {
           next: (): IteratorResult<T> => {
             if (nextRes === null) {
               return { done: true, value: undefined };
             }
-            const nextNextRes = next();
+            const nextNextRes = traverser();
             const data = nextRes.data ?? {
               inner: this.parent.getData(nextRes.addr),
             };
@@ -225,14 +230,14 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
   entries(): Iterable<[PageAddr, T]> {
     return {
       [Symbol.iterator]: () => {
-        const next = this.getNext();
-        let nextRes = next();
+        const traverser = this.getTraverser();
+        let nextRes = traverser();
         return {
           next: (): IteratorResult<[PageAddr, T]> => {
             if (nextRes === null) {
               return { done: true, value: undefined };
             }
-            const nextNextRes = next();
+            const nextNextRes = traverser();
             const data = nextRes.data ?? {
               inner: this.parent.getData(nextRes.addr),
             };
@@ -255,14 +260,14 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
   keys(): Iterable<PageAddr> {
     return {
       [Symbol.iterator]: () => {
-        const next = this.getNext();
-        let nextRes = next();
+        const traverser = this.getTraverser();
+        let nextRes = traverser();
         return {
           next: (): IteratorResult<PageAddr> => {
             if (nextRes === null) {
               return { done: true, value: undefined };
             }
-            const nextNextRes = next();
+            const nextNextRes = traverser();
             const result: IteratorResult<PageAddr> = {
               done: nextNextRes === null ? undefined : false,
               value: new PageAddr(nextRes.addr),

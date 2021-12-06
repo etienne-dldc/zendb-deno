@@ -7,7 +7,7 @@ import { StorageRootPage } from "./pages/StorageRootPage.ts";
 import { StoragePageAny } from "./pages/utils.ts";
 import { PageAddr, RawPageAddr } from "./PageAddr.ts";
 import { QueryBuilderRoot } from "./query/QueryBuilderRoot.ts";
-import { QueryBuilderParentRef } from "./query/utils.ts";
+import { Traverser, QueryBuilderParentRef } from "./query/utils.ts";
 import { IIndexesDesc, IIndexFn, IIndexObj, IIndexes } from "./types.d.ts";
 import { ZenDBIndexes } from "./ZenDBIndexes.ts";
 
@@ -72,6 +72,8 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
       insertInternal: this.insertInternal.bind(this),
       deleteInternal: this.deleteInternal.bind(this),
       updateInternal: this.updateInternal.bind(this),
+      getAllTraverser: this.getAllTraverser.bind(this),
+      indexSelect: this.indexes.select.bind(this.indexes),
     };
     if (this.file.size > 0 && this.indexes.empty) {
       // file exists but indexes are empty
@@ -116,6 +118,10 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
 
   // PRIVATE
 
+  private getAllTraverser(): Traverser<T> {
+    return this.getDataListPage().getTraverser();
+  }
+
   private insertInternal(value: T): RawPageAddr {
     const mana = this.file.createManager();
     const itemSubPage = mana.createPage();
@@ -127,15 +133,23 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
     return itemPage.addr;
   }
 
-  private deleteInternal(_addr: RawPageAddr): void {
-    // const
+  private deleteInternal(addr: RawPageAddr): void {
+    const itemPage = this.getDataItemPage(addr);
+    const list = this.getDataListPage();
+    itemPage.delete();
+    list.remove(itemPage.addr);
+    this.indexes.delete(itemPage.addr, itemPage.data);
   }
 
-  private updateInternal(
-    _addr: RawPageAddr,
-    _update: T | ((obj: T) => T)
-  ): void {
-    throw new Error("Not Implemented");
+  private updateInternal(addr: RawPageAddr, update: T | ((obj: T) => T)): void {
+    const itemPage = this.getDataItemPage(addr);
+    const prevData = itemPage.data;
+    const updated =
+      typeof update === "function"
+        ? (update as (obj: T) => T)(prevData)
+        : update;
+    this.indexes.update(itemPage.addr, prevData, updated);
+    itemPage.data = updated;
   }
 
   private getData(addr: RawPageAddr): T {
@@ -169,13 +183,13 @@ export class ZenDB<T, IndexesDesc extends IIndexesDesc> {
     });
   }
 
-  private getPage<T extends StoragePageAny>(
+  private getPage<P extends StoragePageAny>(
     addr: number,
-    createNode: (page: Page) => T
-  ): T {
+    createNode: (page: Page) => P
+  ): P {
     const cached = this.nodesCache.get(addr);
     if (cached && cached.closed === false) {
-      return cached as T;
+      return cached as P;
     }
     const page =
       addr === 0 ? this.file.getRootPage() : this.file.getPage(addr, null);

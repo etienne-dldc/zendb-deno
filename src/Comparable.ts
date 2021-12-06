@@ -56,7 +56,7 @@ function compareComparableValue(
   const ta = saneTypeof(a);
   const tb = saneTypeof(b);
   if (ta !== tb) {
-    // not the same type order by TYPE_ORDER
+    // not the same type order by TYPES_ORDER
     return TYPES_ORDER.indexOf(ta) - TYPES_ORDER.indexOf(tb);
   }
   if (ta === "null" || ta === "undefined" || ta === "nan") {

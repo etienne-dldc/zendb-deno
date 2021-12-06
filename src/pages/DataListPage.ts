@@ -1,5 +1,7 @@
+// deno-lint-ignore-file no-explicit-any
 import { FixedBlockList, Block, Page, IBufferFacade } from "../../deps.ts";
 import { RawPageAddr } from "../PageAddr.ts";
+import { Traverser } from "../query/utils.ts";
 import { ADDR_BLOCK, StoragePageType } from "./utils.ts";
 
 const DATA_LIST_HEADER = [
@@ -97,5 +99,30 @@ export class DataListPage {
         onAddr(addr);
       }
     }
+  }
+
+  public getTraverser(): Traverser<any> {
+    const readMaxCount = Math.floor(
+      this.content.byteLength / ADDR_BLOCK.read.size
+    );
+    let i = 0;
+    return () => {
+      let nextAddr: RawPageAddr | null = null;
+      while (i < readMaxCount) {
+        const addr = ADDR_BLOCK.read.read(
+          this.content,
+          i * ADDR_BLOCK.read.size
+        );
+        if (addr !== 0) {
+          nextAddr = addr;
+          break;
+        }
+        i++;
+      }
+      if (nextAddr === null) {
+        return null;
+      }
+      return { addr: nextAddr };
+    };
   }
 }

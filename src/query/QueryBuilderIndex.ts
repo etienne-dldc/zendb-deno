@@ -1,17 +1,11 @@
 import { Filter, filters } from "../Filters.ts";
-import { QUERY_BUILDER_INTERNAL, Direction } from "./utils.ts";
+import { QUERY_BUILDER_INTERNAL, Direction, IndexSelectData } from "./utils.ts";
 import { PageAddr } from "../PageAddr.ts";
 
-export type QueryBuilderIndexData<V> = {
-  direction?: Direction;
-  offset?: { kind: "count"; count: number } | { kind: "addr"; addr: PageAddr };
-  filter?: Filter<V>;
-};
-
 export class QueryBuilderIndex<V> {
-  [QUERY_BUILDER_INTERNAL]: QueryBuilderIndexData<V>;
+  [QUERY_BUILDER_INTERNAL]: IndexSelectData<V>;
 
-  constructor(data: QueryBuilderIndexData<V>) {
+  constructor(data: IndexSelectData<V>) {
     this[QUERY_BUILDER_INTERNAL] = data;
   }
 
