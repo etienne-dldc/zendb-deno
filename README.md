@@ -1,3 +1,3 @@
 # ZenDB
 
-> A NoSQL local database
+> A local Database
