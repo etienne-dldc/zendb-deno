@@ -2,7 +2,9 @@ import { ZenDB } from "../mod.ts";
 import { resolve } from "https://deno.land/std@0.116.0/path/mod.ts";
 import { customAlphabet } from "https://deno.land/x/nanoid@v3.0.0/mod.ts";
 
-const path = resolve(Deno.cwd(), "example", "demo.db");
+const basePath = resolve(Deno.cwd(), "example");
+const path = resolve(basePath, "demo.db");
+const indexesPath = resolve(basePath, "demo.indexes.db");
 
 type Item = {
   id: string;
@@ -18,6 +20,7 @@ type Indexes = {
 };
 
 Deno.removeSync(path);
+Deno.removeSync(indexesPath);
 
 const createId = customAlphabet("abcdefgh", 4);
 
@@ -53,6 +56,10 @@ insert(100, "Yolo");
 db.save();
 
 db.debug();
+
+const items = db.query().selectBy("email").limit(2).values();
+
+console.log(items);
 
 // const item = db
 //   .query()

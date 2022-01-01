@@ -1,4 +1,4 @@
-import { Filter, filters } from "../Filters.ts";
+import { Filter, filters } from "../tools/Filters.ts";
 import { IIndexesDesc } from "../types.d.ts";
 import { QueryBuilderSingle } from "./QueryBuilderSingle.ts";
 import { QUERY_BUILDER_INTERNAL } from "./utils.ts";
@@ -97,7 +97,7 @@ export class QueryBuilderCollection<T, IdxDesc extends IIndexesDesc> {
   filter<N extends keyof IdxDesc>(
     _indexName: N,
     _filter: Filter<IdxDesc[N]>
-  ): this {
+  ): QueryBuilderCollection<T, IdxDesc> {
     throw new Error("Not Implemented");
   }
 

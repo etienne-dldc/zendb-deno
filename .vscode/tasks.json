@@ -14,6 +14,13 @@
       "command": "run",
       "args": ["--unstable", "-A", "--reload", "example/main.ts"],
       "problemMatcher": ["$deno"]
+    },
+    {
+      "label": "Run Tests",
+      "type": "deno",
+      "command": "test",
+      "args": ["--unstable", "-A", "--reload", "src"],
+      "problemMatcher": ["$deno"]
     }
   ]
 }

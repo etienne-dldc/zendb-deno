@@ -1,4 +1,4 @@
-import { Comparable, compareOrder } from "../Comparable.ts";
+import { Comparable, compareOrder } from "../tools/Comparable.ts";
 import { RawPageAddr } from "../PageAddr.ts";
 import { IndexInternalPage } from "../pages/IndexInternalPage.ts";
 import { IndexLeafPage } from "../pages/IndexLeafPage.ts";
@@ -51,11 +51,12 @@ function deleteInIndexLeafPage(
       page.data = nextData;
       return null;
     }
-    // list is will be empty, need to remove the entry from the tree
+    // list will be empty, need to remove the entry from the tree
   }
   const nextData = data.slice();
   // delete key
   nextData.splice(existsIndex, 1);
+  page.data = nextData;
 
   if (existsIndex === 0) {
     // parent need to replace key with deletedNextKey

@@ -5,7 +5,7 @@ import {
   BlockSeq,
   IBufferFacade,
 } from "../../deps.ts";
-import { Comparable } from "../Comparable.ts";
+import { Comparable } from "../tools/Comparable.ts";
 import { RawPageAddr } from "../PageAddr.ts";
 import {
   KEY_BLOCK,

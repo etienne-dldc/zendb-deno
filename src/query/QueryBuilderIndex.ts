@@ -1,8 +1,9 @@
 import { Filter, filters } from "../Filters.ts";
 import { QUERY_BUILDER_INTERNAL, Direction, IndexSelectData } from "./utils.ts";
 import { PageAddr } from "../PageAddr.ts";
+import { Comparable } from "../tools/Comparable.ts";
 
-export class QueryBuilderIndex<V> {
+export class QueryBuilderIndex<V extends Comparable> {
   [QUERY_BUILDER_INTERNAL]: IndexSelectData<V>;
 
   constructor(data: IndexSelectData<V>) {

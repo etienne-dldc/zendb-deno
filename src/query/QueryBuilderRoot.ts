@@ -1,3 +1,4 @@
+import { Comparable } from "../tools/Comparable.ts";
 import { PageAddr, RawPageAddr } from "../PageAddr.ts";
 import { IIndexesDesc } from "../types.d.ts";
 import { QueryBuilderCollection } from "./QueryBuilderCollection.ts";
@@ -5,14 +6,13 @@ import { QueryBuilderIndex } from "./QueryBuilderIndex.ts";
 import { QueryBuilderSingle } from "./QueryBuilderSingle.ts";
 import {
   arrayToGetGetTraverser,
-  QUERY_BUILDER_INTERNAL,
   wrap,
   QueryBuilderParentRef,
   Traverser,
   IndexSelectData,
+  IndexBuiderFn,
+  QUERY_BUILDER_INTERNAL,
 } from "./utils.ts";
-
-type IndexBuiderFn<V> = (builder: QueryBuilderIndex<V>) => QueryBuilderIndex<V>;
 
 export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
   private readonly parent: QueryBuilderParentRef<T>;
@@ -52,14 +52,11 @@ export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
     throw new Error("Not Implemented");
   }
 
-  select<N extends keyof IdxDesc>(
+  selectBy<N extends keyof IdxDesc>(
     indexName: N,
-    config: IndexSelectData<IdxDesc[N]> | IndexBuiderFn<IdxDesc[N]>
+    config: IndexSelectData<IdxDesc[N]> | IndexBuiderFn<IdxDesc[N]> = {}
   ): QueryBuilderCollection<T, IdxDesc> {
-    const configResolved =
-      typeof config === "function"
-        ? config(new QueryBuilderIndex({}))[QUERY_BUILDER_INTERNAL]
-        : config;
+    const configResolved = resolveIndexSelectConfig(config);
     return new QueryBuilderCollection<T, IdxDesc>(
       this.parent,
       this.parent.indexSelect(indexName, configResolved)
@@ -97,4 +94,12 @@ export class QueryBuilderRoot<T, IdxDesc extends IIndexesDesc> {
       }
     );
   }
+}
+
+function resolveIndexSelectConfig<V extends Comparable>(
+  config: IndexSelectData<V> | IndexBuiderFn<V>
+): IndexSelectData<V> {
+  return typeof config === "function"
+    ? config(new QueryBuilderIndex({}))[QUERY_BUILDER_INTERNAL]
+    : config;
 }

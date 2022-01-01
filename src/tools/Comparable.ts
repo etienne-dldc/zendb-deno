@@ -3,6 +3,8 @@
 export const MIN = Symbol("MIN");
 export const MAX = Symbol("MAX");
 
+export type ComparableExtrems = typeof MIN | typeof MAX;
+
 export type ComparableValue =
   | null
   | undefined
@@ -10,8 +12,8 @@ export type ComparableValue =
   | number
   | string
   | Date
-  | typeof MIN
-  | typeof MAX;
+  | ComparableExtrems;
+
 export type Comparable = ComparableValue | Array<ComparableValue>;
 
 const TYPES_ORDER = [
@@ -120,7 +122,7 @@ export function compare(a: Comparable, b: Comparable): number {
   return 0;
 }
 
-type OrderOp =
+export type OrderOp =
   | "equal"
   | "isBefore"
   | "isAfter"
@@ -144,4 +146,17 @@ export function compareOrder(
   b: Comparable
 ): boolean {
   return COMPARE_ORDER_MAP[op](a, b);
+}
+
+export function sortAndDedupe(item: Array<Comparable>): Array<Comparable> {
+  const sorted = item.sort(compare);
+  const deduped: Array<Comparable> = [];
+  let last: null | { value: Comparable } = null;
+  for (const item of sorted) {
+    if (last === null || compare(item, last.value) !== 0) {
+      deduped.push(item);
+      last = { value: item };
+    }
+  }
+  return deduped;
 }

@@ -1,4 +1,4 @@
-import { Comparable, compareOrder } from "../Comparable.ts";
+import { Comparable, compareOrder } from "../tools/Comparable.ts";
 import { RawPageAddr } from "../PageAddr.ts";
 import { IndexInternalPage } from "../pages/IndexInternalPage.ts";
 import {
@@ -53,7 +53,7 @@ function insertInIndexLeafPage(
   }
   // insert
   const insertItem: IndexLeafDataTuple = [key, page.unique ? addr : [addr]];
-  const newItems = insertInLeafData(data, insertItem, page.isRoot);
+  const newItems = insertInLeafData(data, insertItem);
   if (newItems.length <= page.maxKeys) {
     // no overflow
     page.data = newItems;
@@ -152,11 +152,10 @@ function insertInAddrList(
 
 function insertInLeafData(
   data: IndexLeafData,
-  newItem: IndexLeafDataTuple,
-  isRoot: boolean
+  newItem: IndexLeafDataTuple
 ): IndexLeafData {
   const [newKey] = newItem;
-  if (isRoot && data.length === 0) {
+  if (data.length === 0) {
     return [newItem];
   }
   const firstKey = data[0][0];

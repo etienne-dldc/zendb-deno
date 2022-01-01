@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { Page, PagedFile } from "../deps.ts";
-import { Comparable, compareOrder } from "./Comparable.ts";
-import { LeastRecentlyUsedMap } from "./LeastRecentlyUsedMap.ts";
+import { Comparable, compareOrder } from "./tools/Comparable.ts";
+import { LeastRecentlyUsedMap } from "./tools/LeastRecentlyUsedMap.ts";
 import { RawPageAddr } from "./PageAddr.ts";
 import { IndexesRootPage, RootDataIndex } from "./pages/IndexesRootPage.ts";
 import { IndexInternalPage } from "./pages/IndexInternalPage.ts";
@@ -11,11 +11,22 @@ import {
   IndexesPageAny,
   IndexesPageType,
 } from "./pages/utils.ts";
-import { GetTraverser, IndexSelectData } from "./query/utils.ts";
+import {
+  GetTraverser,
+  IndexSelectData,
+  filterToRanges,
+  Direction,
+  emptyGetTraverser,
+  TraverserResult,
+  IndexSelectDataOffset,
+} from "./query/utils.ts";
+import { MIN, MAX } from "./tools/Comparable.ts";
+import { Range, range, Ranges } from "./tools/Range.ts";
 import { treeDelete } from "./tree/treeDelete.ts";
 import { treeInsert } from "./tree/treeInsert.ts";
 import { TreeParentRef } from "./tree/types.d.ts";
 import { IIndex, IIndexes, IIndexesDesc, IIndexResolved } from "./types.d.ts";
+import { treeTraverse, TreeTraverseOffset } from "./tree/treeTraverse.ts";
 
 export type ZenDBIndexesOptions = {
   pageSize?: number;
@@ -131,8 +142,16 @@ export class ZenDBIndexes<T, IndexesDesc extends IIndexesDesc> {
     indexName: N,
     config: IndexSelectData<IndexesDesc[N]>
   ): GetTraverser<T> {
-    console.log({ indexName, config });
-    throw new Error("Not implemented");
+    // convert filter to ranges
+    const ranges = config.filter
+      ? filterToRanges<Comparable>(config.filter)
+      : [range<Comparable>(MIN, MAX)];
+    return this.rangesToGetTraverser(
+      indexName,
+      ranges,
+      config.direction ?? "Asc",
+      config.offset
+    );
   }
 
   public save() {
@@ -273,6 +292,100 @@ export class ZenDBIndexes<T, IndexesDesc extends IIndexesDesc> {
       }
       throw new Error(`Unexpected page type`);
     });
+  }
+
+  private rangesToGetTraverser<N extends keyof IndexesDesc>(
+    indexName: N,
+    ranges: Ranges<Comparable>,
+    direction: Direction,
+    configOffset: IndexSelectDataOffset | undefined
+  ): GetTraverser<T> {
+    if (ranges.length === 0) {
+      return emptyGetTraverser();
+    }
+    const rangesQueue = [...ranges];
+    if (direction === "Desc") {
+      rangesQueue.reverse();
+    }
+    const root = this.getRootPage();
+    const rootData = root.data;
+    const indexObj = rootData[indexName as string];
+    const treeRoot = this.getIndexPage(indexObj.addr, indexObj.order);
+    const indexConf = this.indexes[indexName];
+    const offset = this.offsetToTreeTraverseOffset(configOffset);
+    return () => {
+      let rangeTraverser = this.rangeToGetTraverser(
+        indexName,
+        rangesQueue.shift()!,
+        direction
+      )();
+      return (): TraverserResult<T> => {
+        const next = rangeTraverser();
+        if (next === null) {
+          if (rangesQueue.length === 0) {
+            return null;
+          }
+          rangeTraverser = this.rangeToGetTraverser(
+            indexName,
+            rangesQueue.shift()!,
+            direction
+          )();
+          return rangeTraverser();
+        }
+        return next;
+      };
+    };
+  }
+
+  private rangeToGetTraverser<N extends keyof IndexesDesc>(
+    indexName: N,
+    range: Range<Comparable>,
+    direction: Direction,
+    offset: TreeTraverseOffset | null
+  ): GetTraverser<T> {
+    return () => {
+      const [start, end] =
+        direction === "Desc" ? [range.min, range.max] : [range.max, range.min];
+      return treeTraverse(
+        this.treeParentRef,
+        treeRoot,
+        start.value,
+        direction,
+        offset
+      );
+      // const currentPage = page;
+      // const currentKeyIndex = keyIndex;
+      // const currentAddrIndex = 0;
+      // let done = false;
+      // const getNext = (): TraverserResult<T> => {
+      //   if (done) {
+      //     return null;
+      //   }
+      //   throw new Error("Not implemented");
+      // };
+      // if (foundExact && start.inclusive === false) {
+      //   // TODO: if exactMatch and inclusive is false we need to skip first key
+      //   getNext();
+      // }
+      // return getNext;
+    };
+  }
+
+  private offsetToTreeTraverseOffset<N extends keyof IndexesDesc>(
+    offset: IndexSelectDataOffset | undefined,
+    indexName: N
+  ): TreeTraverseOffset | null {
+    if (!offset) {
+      return null;
+    }
+    if (offset.kind === "count") {
+      return { kind: "count", count: offset.count };
+    }
+    // TODO
+    const indexConf = this.indexes[indexName];
+    const offsetKey = indexConf.key();
+
+    return { kind: "addr", offsetAddr: offset.addr.addr, offsetKey };
   }
 
   // private debugIndexPage(

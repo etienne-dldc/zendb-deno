@@ -1,5 +1,5 @@
 import { FixedBlockList, Block, Page, BlockSeq } from "../../deps.ts";
-import { Comparable, compareOrder } from "../Comparable.ts";
+import { Comparable, compareOrder } from "../tools/Comparable.ts";
 import { RawPageAddr } from "../PageAddr.ts";
 import { IndexesPageType, ADDR_BLOCK, KEY_BLOCK } from "./utils.ts";
 
