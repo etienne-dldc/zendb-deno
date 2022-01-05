@@ -1,34 +1,60 @@
-import { Traverser, traverserToIterable } from "./Utils.ts";
+// deno-lint-ignore-file no-explicit-any
+import { Traverser, TraverserResult, traverserToIterable } from "./Utils.ts";
 
 export type Entry<Key, Data> = [Key, Data];
+export type EntryObj<Key, Data> = { key: Key; data: Data };
+
+export type PipeParent<Key> = {
+  deleteByKey: (key: Key) => void;
+  // returns updated key because it may be changed
+  updateByKey: (key: Key, data: unknown) => { updatedKey: Key };
+  insert: (data: unknown) => { newKey: Key };
+};
 
 export class PipeSingleReadonly<Key, Data, Maybe extends boolean> {
-  protected internal: null | Entry<Key, Data>;
+  protected readonly parent: PipeParent<Key>;
+  protected readonly internal: null | EntryObj<Key, Data>;
 
-  constructor(entry: null | Entry<Key, Data>) {
+  constructor(entry: null | EntryObj<Key, Data>, parent: PipeParent<Key>) {
     this.internal = entry;
+    this.parent = parent;
   }
 
   transform<Out>(
-    _transform: (item: Data) => Out
+    transform: (item: Data) => Out
   ): PipeSingleReadonly<Key, Out, Maybe> {
-    throw new Error("Not Implemented");
+    if (this.internal === null) {
+      return this as any;
+    }
+    return new PipeSingleReadonly<Key, Out, Maybe>(
+      {
+        key: this.internal.key,
+        data: transform(this.internal.data),
+      },
+      this.parent
+    );
   }
 
-  filter(_filter: (val: Data) => boolean): PipeSingle<Key, Data, true> {
-    throw new Error("Not Implemented");
+  filter(filter: (val: Data) => boolean): PipeSingle<Key, Data, true> {
+    if (this.internal === null) {
+      return this as any;
+    }
+    if (filter(this.internal.data)) {
+      return this as any;
+    }
+    return new PipeSingle<Key, Data, true>(null, this.parent);
   }
 
   value(): Maybe extends true ? Data | null : Data {
-    throw new Error("Not Implemented");
+    return (this.internal?.data ?? null) as any;
   }
 
   key(): Maybe extends true ? Key | null : Key {
-    throw new Error("Not Implemented");
+    return (this.internal?.key ?? null) as any;
   }
 
   entry(): Maybe extends true ? Entry<Key, Data> | null : Entry<Key, Data> {
-    throw new Error("Not Implemented");
+    return this.internal as any;
   }
 }
 
@@ -37,70 +63,181 @@ export class PipeSingle<
   Data,
   Maybe extends boolean
 > extends PipeSingleReadonly<Key, Data, Maybe> {
-  /**
-   * We could put delete() in PipeSingleReadonly and allow transform().delete()
-   * but we don't want delete().update() to be possible
-   * This is probably fine because you can delete().transform() which produce the same result
-   */
   delete(): PipeSingleReadonly<Key, Data, Maybe> {
-    throw new Error("Not Implemented");
+    /**
+     * We could put delete() in PipeSingleReadonly and allow transform().delete()
+     * but we don't want delete().update() to be possible
+     * This is probably fine because you can delete().transform() which produce the same result
+     */
+    if (this.internal !== null) {
+      this.parent.deleteByKey(this.internal.key);
+    }
+    return new PipeSingleReadonly<Key, Data, Maybe>(this.internal, this.parent);
   }
 
   /**
    * Throw if the entry does not exists
    */
-  update(_update: Data | ((item: Data) => Data)): PipeSingle<Key, Data, Maybe> {
-    throw new Error("Not Implemented");
+  update(update: Data | ((item: Data) => Data)): PipeSingle<Key, Data, Maybe> {
+    if (this.internal === null) {
+      throw new Error("Cannot update a non-existing entry");
+    }
+    const updated =
+      typeof update === "function"
+        ? (update as any)(this.internal.data)
+        : update;
+    if (updated === this.internal.data) {
+      return this as any;
+    }
+    const { updatedKey } = this.parent.updateByKey(this.internal.key, updated);
+    return new PipeSingle<Key, Data, Maybe>(
+      { key: updatedKey, data: updated },
+      this.parent
+    );
   }
 
+  updateIfExists(
+    update: Data | ((item: Data) => Data)
+  ): PipeSingle<Key, Data, Maybe> {
+    if (this.internal === null) {
+      return this as any;
+    }
+    return this.update(update);
+  }
+
+  /**
+   * Update the entry if it exists, otherwise create a new entry
+   */
   upsert(
-    _data: Data | ((iDataem: Data | null) => Data)
+    data: Data | ((item: Data | null) => Data)
   ): PipeSingle<Key, Data, false> {
-    throw new Error("Not Implemented");
+    if (this.internal !== null) {
+      return this.update(data as any) as any;
+    }
+    // insert
+    const dataResolved =
+      typeof data === "function" ? (data as any)(null) : data;
+    const { newKey } = this.parent.insert(dataResolved);
+    return new PipeSingle<Key, Data, false>(
+      { key: newKey, data: dataResolved },
+      this.parent
+    );
   }
 }
 
-export class PipeCollection<Key, Data> {
-  #traverser: Traverser<Key, Data>;
+export class PipeCollectionReadonly<Key, Data> {
+  protected readonly parent: PipeParent<Key>;
+  protected readonly traverser: Traverser<Key, Data>;
 
-  constructor(traverser: Traverser<Key, Data>) {
-    this.#traverser = traverser;
+  constructor(traverser: Traverser<Key, Data>, parent: PipeParent<Key>) {
+    this.traverser = traverser;
+    this.parent = parent;
   }
 
-  filter(_fn: (val: Data) => boolean): PipeCollection<Key, Data> {
-    throw new Error("Not Implemented");
+  /**
+   * Get all data then re-emit them
+   */
+  cache(): PipeCollection<Key, Data> {
+    const all = this.entriesArray();
+    return new PipeCollection<Key, Data>((): TraverserResult<Key, Data> => {
+      if (all.length === 0) {
+        return null;
+      }
+      return all.shift() as any;
+    }, this.parent);
   }
 
-  transform<Out>(_fn: (item: Data) => Out): PipeCollection<Key, Out> {
-    throw new Error("Not Implemented");
+  /**
+   * Get all data then re-emit them
+   */
+  cacheReadonly(): PipeCollectionReadonly<Key, Data> {
+    const all = this.entriesArray();
+    return new PipeCollectionReadonly<Key, Data>(
+      (): TraverserResult<Key, Data> => {
+        if (all.length === 0) {
+          return null;
+        }
+        return all.shift() as any;
+      },
+      this.parent
+    );
+  }
+
+  filter(fn: (val: Data) => boolean): PipeCollection<Key, Data> {
+    let done = false;
+    return new PipeCollection<Key, Data>((): TraverserResult<Key, Data> => {
+      if (done) {
+        return null;
+      }
+      let next = this.traverser();
+      while (next !== null && fn(next.data) === false) {
+        next = this.traverser();
+      }
+      if (next === null) {
+        done = true;
+        return null;
+      }
+      return next;
+    }, this.parent);
+  }
+
+  transform<Out>(fn: (item: Data) => Out): PipeCollection<Key, Out> {
+    let done = false;
+    return new PipeCollection<Key, Out>((): TraverserResult<Key, Out> => {
+      if (done) {
+        return null;
+      }
+      const next = this.traverser();
+      if (next === null) {
+        done = true;
+        return null;
+      }
+      return { key: next.key, data: fn(next.data) };
+    }, this.parent);
   }
 
   // throw if more count is not one
   one(): PipeSingle<Key, Data, false> {
-    throw new Error("Not Implemented");
+    const first = this.traverser();
+    if (first === null) {
+      throw new Error(`.one() expected one, received none`);
+    }
+    const second = this.traverser();
+    if (second !== null) {
+      throw new Error(`.one() expected one, received more`);
+    }
+    return new PipeSingle<Key, Data, false>(first, this.parent);
   }
 
   // throw if count > 1
   maybeOne(): PipeSingle<Key, Data, true> {
-    throw new Error("Not Implemented");
+    const first = this.traverser();
+    if (first === null) {
+      return new PipeSingle<Key, Data, true>(null, this.parent);
+    }
+    const second = this.traverser();
+    if (second !== null) {
+      throw new Error(`.maybeOne() expected one, received more`);
+    }
+    return new PipeSingle<Key, Data, true>(first, this.parent);
   }
 
   // throw if count < 1
   first(): PipeSingle<Key, Data, false> {
-    throw new Error("Not Implemented");
+    const first = this.traverser();
+    if (first === null) {
+      throw new Error(`.first() expected at least one, received none`);
+    }
+    return new PipeSingle<Key, Data, false>(first, this.parent);
   }
 
   // never throw
   maybeFirst(): PipeSingle<Key, Data, true> {
-    throw new Error("Not Implemented");
-  }
-
-  update(_fn: (item: Data) => Data): this {
-    throw new Error("Not Implemented");
-  }
-
-  delete(): this {
-    throw new Error("Not Implemented");
+    const first = this.traverser();
+    if (first === null) {
+      return new PipeSingle<Key, Data, true>(null, this.parent);
+    }
+    return new PipeSingle<Key, Data, true>(first, this.parent);
   }
 
   valuesArray(): Array<Data> {
@@ -108,7 +245,7 @@ export class PipeCollection<Key, Data> {
   }
 
   values(): Iterable<Data> {
-    return traverserToIterable(this.#traverser, (_key, value) => value);
+    return traverserToIterable(this.traverser, (_key, value) => value);
   }
 
   entriesArray(): Array<Entry<Key, Data>> {
@@ -116,7 +253,7 @@ export class PipeCollection<Key, Data> {
   }
 
   entries(): Iterable<Entry<Key, Data>> {
-    return traverserToIterable(this.#traverser, (key, value) => [key, value]);
+    return traverserToIterable(this.traverser, (key, value) => [key, value]);
   }
 
   keysArray(): Array<Key> {
@@ -124,6 +261,68 @@ export class PipeCollection<Key, Data> {
   }
 
   keys(): Iterable<Key> {
-    return traverserToIterable(this.#traverser, (key) => key);
+    return traverserToIterable(this.traverser, (key) => key);
+  }
+
+  /**
+   * Traverse all items (apply update / delete)
+   */
+  apply(): void {
+    let next = this.traverser();
+    while (next !== null) {
+      next = this.traverser();
+    }
+  }
+}
+
+export class PipeCollection<Key, Data> extends PipeCollectionReadonly<
+  Key,
+  Data
+> {
+  update(fn: (item: Data) => Data): PipeCollection<Key, Data> {
+    let done = false;
+    return new PipeCollection<Key, Data>((): TraverserResult<Key, Data> => {
+      if (done) {
+        return null;
+      }
+      const next = this.traverser();
+      if (next === null) {
+        done = true;
+        return null;
+      }
+      const updated = fn(next.data);
+      if (updated === next.data) {
+        return next;
+      }
+      const { updatedKey } = this.parent.updateByKey(next.key, updated);
+      return { key: updatedKey, data: updated };
+    }, this.parent);
+  }
+
+  updateAll(fn: (item: Data) => Data): PipeCollection<Key, Data> {
+    return this.update(fn).cache();
+  }
+
+  delete(): PipeCollectionReadonly<Key, Data> {
+    let done = false;
+    return new PipeCollectionReadonly<Key, Data>(
+      (): TraverserResult<Key, Data> => {
+        if (done) {
+          return null;
+        }
+        const next = this.traverser();
+        if (next === null) {
+          done = true;
+          return null;
+        }
+        this.parent.deleteByKey(next.key);
+        return next;
+      },
+      this.parent
+    );
+  }
+
+  deleteAll(): PipeCollectionReadonly<Key, Data> {
+    return this.delete().cacheReadonly();
   }
 }

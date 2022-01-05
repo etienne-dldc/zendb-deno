@@ -6,8 +6,8 @@ import { SchemaAny } from "./Schema.ts";
 import { PRIV, join, sqlQuote } from "./Utils.ts";
 
 export class Database<Schema extends SchemaAny> {
-  #db: DB | null = null;
-  readonly #schemaQueries: Array<string>;
+  private db: DB | null = null;
+  private readonly schemaQueries: Array<string>;
 
   readonly schema: Schema;
   readonly fingerpring: number;
@@ -21,14 +21,14 @@ export class Database<Schema extends SchemaAny> {
   };
 
   constructor(schema: Schema, id: number) {
-    this.#schemaQueries = schemaToQueries(schema);
+    this.schemaQueries = schemaToQueries(schema);
     this.schema = schema;
     this.fingerpring = fingerprintString(
       // add id to allow same schema
-      id + "_" + this.#schemaQueries.join("\n"),
+      id + "_" + this.schemaQueries.join("\n"),
       Math.pow(2, 30)
     );
-    const getDb = this.#ensureConnected.bind(this);
+    const getDb = this.ensureConnected.bind(this);
     this.tables = Object.fromEntries(
       schema.tables.map(
         (table): [string, DatabaseTable<string, any, any, any>] => {
@@ -38,46 +38,44 @@ export class Database<Schema extends SchemaAny> {
     ) as any;
   }
 
-  #ensureConnected(): DB {
-    if (this.#db === null) {
+  private ensureConnected(): DB {
+    if (this.db === null) {
       throw new Error("Not Connected");
     }
-    return this.#db;
+    return this.db;
   }
 
   connect(path: string) {
-    if (this.#db) {
+    if (this.db) {
       throw new Error("Database already connected");
     }
-    this.#db = new DB(path);
+    this.db = new DB(path);
   }
 
   getUserVersion(): number {
-    return this.#ensureConnected().query<[number]>(
-      `PRAGMA user_version;`
-    )[0][0];
+    return this.ensureConnected().query<[number]>(`PRAGMA user_version;`)[0][0];
   }
 
   setUserVersion() {
-    this.#ensureConnected().query(`PRAGMA user_version = ${this.fingerpring};`);
+    this.ensureConnected().query(`PRAGMA user_version = ${this.fingerpring};`);
   }
 
   close() {
-    if (this.#db) {
-      this.#db.close();
-      this.#db = null;
+    if (this.db) {
+      this.db.close();
+      this.db = null;
     }
   }
 
   initSchema() {
-    const db = this.#ensureConnected();
+    const db = this.ensureConnected();
     const currentTables = db.query(
       `SELECT name, sql FROM sqlite_master WHERE type = 'table'`
     );
     if (currentTables.length) {
       throw new Error(`Cannot init schema on non-empty database`);
     }
-    this.#schemaQueries.forEach((query) => {
+    this.schemaQueries.forEach((query) => {
       console.log("-> " + query);
       db.query(query);
     });

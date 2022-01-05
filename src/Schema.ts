@@ -140,6 +140,15 @@ export function schema<Tables extends TablesAny>({
         key: table.key,
         indexes: Object.entries(table.indexes).map(
           ([name, column]): IndexResolved => {
+            if (name.toLocaleLowerCase() === "key") {
+              throw new Error(`Index name 'key' is reserved`);
+            }
+            if (name.toLocaleLowerCase() === "data") {
+              throw new Error(`Index name 'data' is reserved`);
+            }
+            if (name.toLocaleLowerCase() === "internal_current_key") {
+              throw new Error(`Index name 'internal_current_key' is reserved`);
+            }
             return { name, column };
           }
         ),

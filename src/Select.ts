@@ -50,28 +50,31 @@ export class Select<
   Indexes extends IndexesAny<any>,
   Params extends ValuesAny | null
 > {
-  readonly [PRIV]: SelectInternal<Name, Key, Data, Params>;
-  #tableConfig: TableResolved;
-  #cachedQuery: PreparedQuery<
+  private readonly tableConfig: TableResolved;
+  private cachedQuery: PreparedQuery<
     [Key, string],
     { key: Key; data: string }
   > | null = null;
+
+  readonly [PRIV]: SelectInternal<Name, Key, Data, Params>;
 
   constructor(
     internal: Omit<SelectInternal<Name, Key, Data, Params>, "getQuery">
   ) {
     this[PRIV] = {
       ...internal,
-      getQuery: this.#getQuery.bind(this),
+      getQuery: this.getQuery.bind(this),
     };
-    this.#tableConfig = notNil(
+    this.tableConfig = notNil(
       internal.schema.tables.find((table) => table.name === internal.table)
     );
   }
 
-  #getQuery(db: DB): PreparedQuery<[Key, string], { key: Key; data: string }> {
-    if (this.#cachedQuery) {
-      return this.#cachedQuery;
+  private getQuery(
+    db: DB
+  ): PreparedQuery<[Key, string], { key: Key; data: string }> {
+    if (this.cachedQuery) {
+      return this.cachedQuery;
     }
     const { where, limit, offset, sort } = this[PRIV];
     if (limit || offset || sort) {
@@ -79,17 +82,17 @@ export class Select<
     }
     const query = join.space(
       `SELECT key, data FROM`,
-      sqlQuote(this.#tableConfig.name),
+      sqlQuote(this.tableConfig.name),
       where ? join.space(`WHERE`, printExpression(where)) : null
     );
-    this.#cachedQuery = db.prepareQuery(query);
-    return this.#cachedQuery;
+    this.cachedQuery = db.prepareQuery(query);
+    return this.cachedQuery;
   }
 
   finalize() {
-    if (this.#cachedQuery) {
-      this.#cachedQuery.finalize();
-      this.#cachedQuery = null;
+    if (this.cachedQuery) {
+      this.cachedQuery.finalize();
+      this.cachedQuery = null;
     }
   }
 
@@ -98,7 +101,7 @@ export class Select<
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      where: this.#resolveExprOrExprFn(expr, this[PRIV].params),
+      where: this.resolveExprOrExprFn(expr, this[PRIV].params),
     });
   }
 
@@ -107,7 +110,7 @@ export class Select<
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      limit: this.#resolveExprOrExprFn(expr, this[PRIV].params),
+      limit: this.resolveExprOrExprFn(expr, this[PRIV].params),
     });
   }
 
@@ -116,7 +119,7 @@ export class Select<
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      offset: this.#resolveExprOrExprFn(expr, this[PRIV].params),
+      offset: this.resolveExprOrExprFn(expr, this[PRIV].params),
     });
   }
 
@@ -125,11 +128,11 @@ export class Select<
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      sort: this.#resolveExprOrExprFn(expr, this[PRIV].params),
+      sort: this.resolveExprOrExprFn(expr, this[PRIV].params),
     });
   }
 
-  #resolveExprOrExprFn(
+  private resolveExprOrExprFn(
     expr: ExprOrExprFn<Indexes, Params>,
     params: Params
   ): Expr {
@@ -140,7 +143,7 @@ export class Select<
         return { kind: "ParamRef", [PRIV]: paramName };
       }) as any);
       const indexesRefs = Object.fromEntries(
-        this.#tableConfig.indexes.map((index) => {
+        this.tableConfig.indexes.map((index) => {
           return [
             index.name,
             {

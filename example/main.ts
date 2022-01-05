@@ -28,22 +28,23 @@ const queryUserById = tables.users
   .prepare({ maxAge: sql.value.number() })
   .where(({ params, indexes }) => e.lte(indexes.age, params.maxAge));
 
-const createUser = (): User => ({
-  id: nanoid(10),
-  name: "John",
-  age: Math.floor(Math.random() * 100),
-  date: new Date(),
-});
+// const createUser = (): User => ({
+//   id: nanoid(10),
+//   name: "John",
+//   age: Math.floor(Math.random() * 100),
+//   date: new Date(),
+// });
 
-tables.users.insert(createUser());
-tables.users.insert(createUser());
-tables.users.insert(createUser());
+// tables.users.insert(createUser());
+// tables.users.insert(createUser());
+// tables.users.insert(createUser());
 
-const users = tables.users
+tables.users
   .select(queryUserById, { maxAge: 30 })
-  // .transform((user) => user.name)
-  // .update((prev) => ({ ...prev, name: "John Doe" }))
-  .valuesArray();
+  .update((prev) => ({ ...prev, name: "Lucas" }))
+  .apply();
+
+const users = tables.users.select(queryUserById, { maxAge: 30 }).valuesArray();
 
 console.log(users);
 
