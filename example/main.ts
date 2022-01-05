@@ -1,7 +1,10 @@
 import { resolve } from "https://deno.land/std@0.113.0/path/mod.ts";
 import { ensureDirSync } from "https://deno.land/std@0.113.0/fs/mod.ts";
-import { v001 } from "./migrations/v001.ts";
-import { Migrations } from "../mod.ts";
+import { nanoid } from "https://deno.land/x/nanoid/mod.ts";
+import { User, v001 } from "./migrations/v001.ts";
+import * as sql from "../mod.ts";
+
+const e = sql.expr;
 
 const dbFolderPath = resolve(Deno.cwd(), "example");
 const databasePath = resolve(dbFolderPath, "database.db");
@@ -9,12 +12,42 @@ const migrationDatabasePath = resolve(dbFolderPath, "migration-database.db");
 
 ensureDirSync(dbFolderPath);
 
-export const database = await Migrations.create("Init", v001, () => {}, {
+const migration = sql.Migrations.create({
+  name: "Init",
+  schema: v001,
+}).addMigration({ name: "Update", schema: v001 });
+
+export const database = await migration.apply({
   databasePath,
   migrationDatabasePath,
-}).apply();
+});
 
-database.insert("users", { id: "1", name: "John", age: 30 });
+const tables = database.tables;
+
+const queryUserById = tables.users
+  .prepare({ maxAge: sql.value.number() })
+  .where(({ params, indexes }) => e.lte(indexes.age, params.maxAge));
+
+const createUser = (): User => ({
+  id: nanoid(10),
+  name: "John",
+  age: Math.floor(Math.random() * 100),
+  date: new Date(),
+});
+
+tables.users.insert(createUser());
+tables.users.insert(createUser());
+tables.users.insert(createUser());
+
+const users = tables.users
+  .select(queryUserById, { maxAge: 30 })
+  // .transform((user) => user.name)
+  // .update((prev) => ({ ...prev, name: "John Doe" }))
+  .valuesArray();
+
+console.log(users);
+
+// const record = tables.bankRecords.findBy("date", new Date()).one().value();
 
 // const insertUserQuery = database.prepareInsert("Users");
 

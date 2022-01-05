@@ -1,6 +1,7 @@
 import * as sql from "../../mod.ts";
+import { sanitize, restore } from "https://deno.land/x/zenjson/mod.ts";
 
-export type User = { id: string; name: string; age: number };
+export type User = { id: string; name: string; age: number; date: Date };
 
 export type BankRecord = {
   id: string;
@@ -16,22 +17,24 @@ export type Transformation =
   | { id: string; kind: "merge"; items: Array<string>; description: string }
   | { id: string; kind: "split"; items: Array<SplitItem> };
 
-export type Schema = sql.Tables<{
-  users: sql.Table<User, { id: string }>;
-  bankReccords: sql.Table<BankRecord, { date: Date }>;
-  transformation: sql.Table<Transformation, { id: string }>;
-}>;
-
-export const v001 = sql.schema<Schema>({
+export const v001 = sql.schema({
+  sanitize,
+  restore,
   tables: {
-    users: {
-      indexes: { id: { primary: true, fn: (data) => data.id } },
-    },
-    bankReccords: {
-      indexes: { date: (data) => data.date },
-    },
-    transformation: {
-      indexes: { id: { primary: true, fn: (data) => data.id } },
-    },
+    users: sql.table<User>()(
+      sql.column.text((data) => data.id),
+      {
+        age: sql.column.number((data) => data.age),
+        date: sql.column.date((data) => data.date),
+      }
+    ),
+    bankRecords: sql.table<BankRecord>()(
+      sql.column.text((data) => data.id),
+      { date: sql.column.date((data) => data.date) }
+    ),
+    transformation: sql.table<Transformation>()(
+      sql.column.text((data) => data.id),
+      {}
+    ),
   },
 });

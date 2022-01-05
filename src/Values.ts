@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
-import { zod } from "../../deps.ts";
-import { mapObject } from "../utils.ts";
-import { ColumnBuilder, ColumnBuilderAny } from "./ColumnBuilder.ts";
+import { zod } from "../deps.ts";
+import { mapObject } from "./Utils.ts";
+// import { ColumnBuilder, ColumnBuilderAny } from "./ColumnBuilder.ts";
 import {
   Datatype,
   datatype,
@@ -14,7 +14,7 @@ import {
   DatatypeText,
   parseDatatype,
   serializeDatatype,
-} from "./datatype.ts";
+} from "./Datatype.ts";
 
 type DefaultValueBase = (() => any) | null;
 
@@ -40,17 +40,6 @@ export type DataFromValue<Value extends ValueAny> =
   | DatatypeParsed<Value["datatype"]>
   | (Value["isNullable"] extends true ? null : never)
   | (Value["defaultValue"] extends null ? never : null);
-
-export type ValueFromColumn<Col extends ColumnBuilderAny> =
-  Col extends ColumnBuilder<
-    string,
-    infer Dt,
-    boolean,
-    infer Nullable,
-    infer DefaultValue
-  >
-    ? Value<Dt, Nullable, DefaultValue>
-    : never;
 
 export type DataFromValues<Values extends ValuesAny> = {
   [K in keyof Values]: DataFromValue<Values[K]>;

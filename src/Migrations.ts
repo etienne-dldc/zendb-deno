@@ -16,7 +16,20 @@ type Migrate<
   next: Database<NextSchema>
 ) => void | Promise<void>;
 
-type MigrationItem = {
+type FirstMigrationItem<Schema extends SchemaAny> = MigrationItem<null, Schema>;
+
+type MigrationItem<
+  PrevSchema extends SchemaAny | null,
+  NextSchema extends SchemaAny
+> = {
+  name: string;
+  schema: NextSchema;
+  migrate?: Migrate<PrevSchema | null, NextSchema>;
+};
+
+type MigrationItemAny = MigrationItem<SchemaAny | null, SchemaAny>;
+
+type MigrationObj = {
   name: string;
   database: Database<SchemaAny>;
   migrate?: Migrate<SchemaAny | null, SchemaAny>;
@@ -24,41 +37,33 @@ type MigrationItem = {
 
 export class Migrations<Schema extends SchemaAny> {
   static create<Schema extends SchemaAny>(
-    name: string,
-    schema: Schema,
-    migrate: Migrate<null, Schema>,
-    options: Options
+    item: FirstMigrationItem<Schema>
   ): Migrations<Schema> {
-    return new Migrations([], options).addMigration(
-      name,
-      schema,
-      migrate as any
-    );
+    return new Migrations([]).addMigration(item as any);
   }
 
-  readonly #migrations: Array<MigrationItem>;
-  readonly #options: Options;
+  readonly #migrations: Array<MigrationObj>;
 
-  private constructor(migrations: Array<MigrationItem>, options: Options) {
+  private constructor(migrations: Array<MigrationObj>) {
     this.#migrations = migrations;
-    this.#options = options;
   }
 
-  addMigration<NextSchema extends SchemaAny>(
-    name: string,
-    schema: NextSchema,
-    migrate?: Migrate<Schema, NextSchema>
-  ): Migrations<NextSchema> {
-    const item: MigrationItem = {
+  addMigration<NextSchema extends SchemaAny>({
+    name,
+    schema,
+    migrate,
+  }: MigrationItem<Schema, NextSchema>): Migrations<NextSchema> {
+    const database = new Database(schema, this.#migrations.length);
+    const item: MigrationObj = {
       name,
-      database: new Database(schema, this.#migrations.length),
+      database: database as any,
       migrate: migrate as any,
     };
-    return new Migrations([...this.#migrations, item], this.#options);
+    return new Migrations([...this.#migrations, item]);
   }
 
-  async apply(): Promise<Database<Schema>> {
-    const db = new DB(this.#options.databasePath);
+  async apply(options: Options): Promise<Database<Schema>> {
+    const db = new DB(options.databasePath);
     const currentVersion = db.query<[number]>(`PRAGMA user_version;`)[0][0];
     db.close();
     console.info(`Database current version: ${currentVersion}`);
@@ -85,10 +90,10 @@ export class Migrations<Schema extends SchemaAny> {
         } -> ${nextDb.fingerpring})`
       );
       if (prevDb) {
-        prevDb.connect(this.#options.databasePath);
+        prevDb.connect(options.databasePath);
       }
-      removeSyncIfExist(this.#options.migrationDatabasePath);
-      nextDb.connect(this.#options.migrationDatabasePath);
+      removeSyncIfExist(options.migrationDatabasePath);
+      nextDb.connect(options.migrationDatabasePath);
       nextDb.initSchema();
       if (mig.migrate) {
         await mig.migrate(prevDb, nextDb);
@@ -98,14 +103,11 @@ export class Migrations<Schema extends SchemaAny> {
         prevDb.close();
       }
       nextDb.close();
-      removeSyncIfExist(this.#options.databasePath);
-      Deno.renameSync(
-        this.#options.migrationDatabasePath,
-        this.#options.databasePath
-      );
+      removeSyncIfExist(options.databasePath);
+      Deno.renameSync(options.migrationDatabasePath, options.databasePath);
     }
     const lastDb = this.#migrations[this.#migrations.length - 1].database;
-    lastDb.connect(this.#options.databasePath);
+    lastDb.connect(options.databasePath);
     return lastDb as any;
   }
 }
