@@ -16,24 +16,35 @@ type SelectInternal<
   schema: SchemaAny;
   params: Params;
   where: Expr | null;
-  limit: Expr | null;
-  offset: Expr | null;
-  sort: Expr | null;
+  orderBy: Array<Expr> | null;
+  limit: { limit: Expr; offset: Expr | null } | null;
   getQuery(db: DB): PreparedQuery<[Key, string], { key: Key; data: string }>;
 };
 
 export type IndexesRefs<Indexes extends IndexesAny<any>> = {
-  [K in keyof Indexes]: IndexRef;
+  [K in Indexes[number]["name"]]: IndexRef;
 };
 
 export type ParamsRef<Params extends ValuesAny> = {
   [K in keyof Params]: ParamRef;
 };
 
+export type ToolsFn<
+  Indexes extends IndexesAny<any>,
+  Params extends ValuesAny | null,
+  Res
+> = (tools: SelectTools<Indexes, Params>) => Res;
+
+export type ValOrToolsFn<
+  Indexes extends IndexesAny<any>,
+  Params extends ValuesAny | null,
+  Res
+> = Res | ToolsFn<Indexes, Params, Res>;
+
 export type ExprOrExprFn<
   Indexes extends IndexesAny<any>,
   Params extends ValuesAny | null
-> = Expr | ((tools: SelectTools<Indexes, Params>) => Expr);
+> = ValOrToolsFn<Indexes, Params, Expr>;
 
 export type SelectTools<
   Indexes extends IndexesAny<any>,
@@ -76,14 +87,26 @@ export class Select<
     if (this.cachedQuery) {
       return this.cachedQuery;
     }
-    const { where, limit, offset, sort } = this[PRIV];
-    if (limit || offset || sort) {
-      throw new Error("Limit, offset and sort not supported yet");
-    }
+    const { where, limit, orderBy } = this[PRIV];
     const query = join.space(
       `SELECT key, data FROM`,
       sqlQuote(this.tableConfig.name),
-      where ? join.space(`WHERE`, printExpression(where)) : null
+      where ? join.space(`WHERE`, printExpression(where)) : null,
+      orderBy
+        ? join.space(
+            `ORDER BY`,
+            join.comma(...orderBy.map((expr) => printExpression(expr)))
+          )
+        : null,
+      limit
+        ? join.space(
+            `LIMIT`,
+            printExpression(limit.limit),
+            limit.offset
+              ? join.space(`OFFSET`, printExpression(limit.offset))
+              : null
+          )
+        : null
     );
     this.cachedQuery = db.prepareQuery(query);
     return this.cachedQuery;
@@ -101,42 +124,40 @@ export class Select<
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      where: this.resolveExprOrExprFn(expr, this[PRIV].params),
+      where: this.resolveValOrToolsFn(expr, this[PRIV].params),
     });
   }
 
   limit(
-    expr: ExprOrExprFn<Indexes, Params>
+    limit: ExprOrExprFn<Indexes, Params>,
+    offset: ExprOrExprFn<Indexes, Params> | null = null
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      limit: this.resolveExprOrExprFn(expr, this[PRIV].params),
+      limit: {
+        limit: this.resolveValOrToolsFn(limit, this[PRIV].params),
+        offset:
+          offset === null
+            ? null
+            : this.resolveValOrToolsFn(offset, this[PRIV].params),
+      },
     });
   }
 
-  offset(
-    expr: ExprOrExprFn<Indexes, Params>
+  orderBy(
+    expr: ValOrToolsFn<Indexes, Params, Array<Expr>>
   ): Select<Name, Key, Data, Indexes, Params> {
     return new Select({
       ...this[PRIV],
-      offset: this.resolveExprOrExprFn(expr, this[PRIV].params),
+      orderBy: this.resolveValOrToolsFn(expr, this[PRIV].params),
     });
   }
 
-  sort(
-    expr: ExprOrExprFn<Indexes, Params>
-  ): Select<Name, Key, Data, Indexes, Params> {
-    return new Select({
-      ...this[PRIV],
-      sort: this.resolveExprOrExprFn(expr, this[PRIV].params),
-    });
-  }
-
-  private resolveExprOrExprFn(
-    expr: ExprOrExprFn<Indexes, Params>,
+  private resolveValOrToolsFn<Res>(
+    value: ValOrToolsFn<Indexes, Params, Res>,
     params: Params
-  ): Expr {
-    if (typeof expr === "function") {
+  ): Res {
+    if (typeof value === "function") {
       const paramsRefs = mapObject(params ?? {}, ((
         paramName: string
       ): ParamRef => {
@@ -157,8 +178,8 @@ export class Select<
         indexes: indexesRefs as any,
         params: paramsRefs as any,
       };
-      return expr(tools);
+      return (value as any)(tools);
     }
-    return expr;
+    return value;
   }
 }

@@ -1,9 +1,9 @@
 // deno-lint-ignore-file no-explicit-any
-import { DB, encode, Hash } from "../deps.ts";
+import { DB } from "../deps.ts";
 import { DatabaseTable } from "./DatabaseTable.ts";
-import { Datatype } from "./Datatype.ts";
+import { printDatatype } from "./Datatype.ts";
 import { SchemaAny } from "./Schema.ts";
-import { PRIV, join, sqlQuote } from "./Utils.ts";
+import { PRIV, join, sqlQuote, fingerprintString } from "./Utils.ts";
 
 export class Database<Schema extends SchemaAny> {
   private db: DB | null = null;
@@ -16,15 +16,15 @@ export class Database<Schema extends SchemaAny> {
       K,
       Schema[PRIV][K][PRIV]["key"],
       Schema[PRIV][K][PRIV]["data"],
-      Schema[PRIV][K]["indexes"]
+      Schema[PRIV][K][PRIV]["indexes"]
     >;
   };
 
   constructor(schema: Schema, id: number) {
-    this.schemaQueries = schemaToQueries(schema);
+    this.schemaQueries = this.schemaToQueries(schema);
     this.schema = schema;
     this.fingerpring = fingerprintString(
-      // add id to allow same schema
+      // add id to allow same schema in multiple mutations (different hash)
       id + "_" + this.schemaQueries.join("\n"),
       Math.pow(2, 30)
     );
@@ -36,13 +36,6 @@ export class Database<Schema extends SchemaAny> {
         }
       )
     ) as any;
-  }
-
-  private ensureConnected(): DB {
-    if (this.db === null) {
-      throw new Error("Not Connected");
-    }
-    return this.db;
   }
 
   connect(path: string) {
@@ -80,56 +73,40 @@ export class Database<Schema extends SchemaAny> {
       db.query(query);
     });
   }
-}
 
-function schemaToQueries(schema: SchemaAny): Array<string> {
-  const { tables } = schema;
-  return tables.map((table) => {
-    return join.all(
-      `CREATE TABLE ${sqlQuote(table.name)}`,
-      `(`,
-      join.comma(
-        `key ${printDatatype(table.key.datatype)} PRIMARY KEY NOT NULL`,
-        `data JSON`,
-        ...table.indexes.map(
-          ({ name, column: { datatype, nullable, primary, unique } }) => {
-            const notNull = nullable === false;
-            return join.space(
-              sqlQuote(name),
-              printDatatype(datatype),
-              primary ? "PRIMARY KEY" : null,
-              notNull ? "NOT NULL" : null,
-              unique ? "UNIQUE" : null
-            );
-          }
-        )
-      ),
-      ");"
-    );
-  });
-}
-
-function printDatatype(datatype: Datatype): string {
-  return {
-    json: "TEXT",
-    text: "TEXT",
-    number: "FLOAT",
-    integer: "INTEGER",
-    date: "FLOAT",
-    boolean: "INTEGER",
-  }[datatype.kind];
-}
-
-function fingerprintString(str: string, max: number): number {
-  const hashBuffer = new Hash("md5").digest(encode(str)).data;
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  let result = 0;
-  hashArray.forEach((num) => {
-    result = (result + num) % max;
-  });
-  // never return 0
-  if (result === 0) {
-    return max;
+  private ensureConnected(): DB {
+    if (this.db === null) {
+      throw new Error("Not Connected");
+    }
+    return this.db;
   }
-  return result;
+
+  private schemaToQueries(schema: SchemaAny): Array<string> {
+    const { tables } = schema;
+    return tables.map((table) => {
+      return join.all(
+        `CREATE TABLE ${sqlQuote(table.name)}`,
+        `(`,
+        join.comma(
+          `key ${printDatatype(
+            table.key.column.datatype
+          )} PRIMARY KEY NOT NULL`,
+          `data JSON`,
+          ...table.indexes.map(
+            ({ name, column: { datatype, nullable, primary, unique } }) => {
+              const notNull = nullable === false;
+              return join.space(
+                sqlQuote(name),
+                printDatatype(datatype),
+                primary ? "PRIMARY KEY" : null,
+                notNull ? "NOT NULL" : null,
+                unique ? "UNIQUE" : null
+              );
+            }
+          )
+        ),
+        ");"
+      );
+    });
+  }
 }

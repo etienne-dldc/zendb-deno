@@ -1,112 +1,117 @@
 // deno-lint-ignore-file no-explicit-any
-import { zod } from "../deps.ts";
-import {
-  datatype,
-  Datatype,
-  DatatypeBoolean,
-  DatatypeParsed,
-  DatatypeText,
-  DatatypeDate,
-  DatatypeInteger,
-  DatatypeJson,
-  DatatypeNumber,
-} from "./Datatype.ts";
+import { Column, DataFromColumn, ColumnAny, ColumnResolved } from "./Column.ts";
+import { Datatype } from "./Datatype.ts";
 import { PRIV } from "./Utils.ts";
 
-export type ColumnFn<Data, T> = (data: Data) => T;
+export type IndexFn<Data, T> = (data: Data) => T;
 
-export type Column<Data, T> = {
-  [PRIV]: T;
-  datatype: Datatype;
-  fn: ColumnFn<Data, T>;
-  unique: boolean;
-  primary: boolean;
-  nullable: boolean;
-};
-
-export type ColumnAny = Column<any, any>;
-
-export type ColumnOptions =
-  | { primary: true; unique?: boolean }
-  | { unique?: boolean; nullable?: boolean };
-
-function createColumn<Data, Dt extends Datatype>(
-  datatype: Datatype,
-  fn: ColumnFn<Data, DatatypeParsed<Dt>>,
-  options: ColumnOptions = {}
-): Column<Data, DatatypeParsed<Dt>> {
-  return {
-    [PRIV]: null as any,
-    datatype,
-    fn,
-    unique: false,
-    primary: false,
-    nullable: false,
-    ...options,
+export type Index<Name extends string, Data, Column extends ColumnAny> = {
+  [PRIV]: {
+    data: Data;
+    value: DataFromColumn<Column>;
   };
-}
-
-export const column = {
-  create: createColumn,
-  text<Data>(fn: ColumnFn<Data, string>, options: ColumnOptions = {}) {
-    return createColumn<Data, DatatypeText>(datatype.text(), fn, options);
-  },
-  boolean<Data>(fn: ColumnFn<Data, boolean>, options: ColumnOptions = {}) {
-    return createColumn<Data, DatatypeBoolean>(datatype.boolean(), fn, options);
-  },
-  date<Data>(fn: ColumnFn<Data, Date>, options: ColumnOptions = {}) {
-    return createColumn<Data, DatatypeDate>(datatype.date(), fn, options);
-  },
-  integer<Data>(fn: ColumnFn<Data, number>, options: ColumnOptions = {}) {
-    return createColumn<Data, DatatypeInteger>(datatype.integer(), fn, options);
-  },
-  number<Data>(fn: ColumnFn<Data, number>, options: ColumnOptions = {}) {
-    return createColumn<Data, DatatypeNumber>(datatype.number(), fn, options);
-  },
-  json<Data, Value>(
-    schema: zod.Schema<Value>,
-    fn: ColumnFn<Data, Value>,
-    options: ColumnOptions = {}
-  ) {
-    return createColumn<Data, DatatypeJson<Value>>(
-      datatype.json(schema),
-      fn,
-      options
-    );
-  },
+  name: Name;
+  column: Column;
+  fn: IndexFn<Data, DataFromColumn<Column>>;
 };
 
-export type IndexesAny<Data> = Record<string, Column<Data, any>>;
+export type IndexAny = Index<string, any, ColumnAny>;
 
-export type Table<Data, Key, Indexes extends IndexesAny<Data>> = {
-  [PRIV]: { data: Data; key: Key };
-  key: Column<Data, Key>;
-  indexes: Indexes;
+export type IndexesAny<Data> = ReadonlyArray<Index<string, Data, ColumnAny>>;
+
+export type TableKey<Data, KeyDt extends Datatype> = {
+  column: Column<KeyDt, false, null>;
+  fn: IndexFn<Data, DataFromColumn<Column<KeyDt, false, null>>>;
+};
+
+export type PartialTable<Data> = {
+  [PRIV]: Data;
+  key<KeyDt extends Datatype>(
+    column: Column<KeyDt, false, null>,
+    fn: IndexFn<Data, DataFromColumn<Column<KeyDt, false, null>>>
+  ): Table<Data, KeyDt, []>;
+};
+
+export type Table<
+  Data,
+  KeyDt extends Datatype,
+  Indexes extends IndexesAny<Data>
+> = {
+  [PRIV]: {
+    data: Data;
+    key: TableKey<Data, KeyDt>;
+    indexes: Indexes;
+  };
+  index<Name extends string, Column extends ColumnAny>(
+    name: Name,
+    column: Column,
+    fn: IndexFn<Data, DataFromColumn<Column>>
+  ): Table<Data, KeyDt, [...Indexes, Index<Name, Data, Column>]>;
 };
 
 export type TableAny = Table<any, any, IndexesAny<any>>;
 
-export type TypedTable<Data> = <Key, Indexes extends IndexesAny<Data>>(
-  key: Column<Data, Key>,
-  indexes: Indexes
-) => Table<Data, Key, Indexes>;
+export type WrappedType<T> = { [PRIV]: T };
 
-export function table<Data>(): TypedTable<Data> {
-  return (key, indexes) => {
-    return { [PRIV]: null as any, key, indexes };
+export function type<T>(): WrappedType<T> {
+  return { [PRIV]: null as any };
+}
+
+export function table<Data>(): PartialTable<Data> {
+  return {
+    [PRIV]: null as any,
+    key<KeyDt extends Datatype>(
+      column: Column<KeyDt, false, null>,
+      fn: IndexFn<Data, DataFromColumn<Column<KeyDt, false, null>>>
+    ) {
+      return create({ column, fn }, []);
+    },
   };
+  function create<
+    Data,
+    KeyDt extends Datatype,
+    Indexes extends IndexesAny<Data>
+  >(key: TableKey<Data, KeyDt>, indexes: Indexes): Table<Data, KeyDt, Indexes> {
+    return {
+      [PRIV]: {
+        data: null as any,
+        key,
+        indexes,
+      },
+      index<Name extends string, Column extends ColumnAny>(
+        name: Name,
+        column: Column,
+        fn: IndexFn<Data, DataFromColumn<Column>>
+      ) {
+        const index: Index<Name, Data, Column> = {
+          [PRIV]: {
+            data: null as any,
+            value: null as any,
+          },
+          name,
+          column,
+          fn,
+        };
+        return create(key, [...indexes, index]);
+      },
+    };
+  }
 }
 
 export type TablesAny = Record<string, TableAny>;
 
 export type IndexResolved = {
   name: string;
-  column: ColumnAny;
+  column: ColumnResolved;
+  fn: IndexFn<any, any>;
 };
 
 export type TableResolved = {
   name: string;
-  key: ColumnAny;
+  key: {
+    column: ColumnResolved;
+    fn: IndexFn<any, any>;
+  };
   indexes: Array<IndexResolved>;
 };
 
@@ -135,21 +140,31 @@ export function schema<Tables extends TablesAny>({
     sanitize,
     restore,
     tables: Object.entries(tables).map(([name, table]): TableResolved => {
+      const indexesNames = new Set<string>();
       return {
         name,
-        key: table.key,
-        indexes: Object.entries(table.indexes).map(
-          ([name, column]): IndexResolved => {
-            if (name.toLocaleLowerCase() === "key") {
+        key: {
+          fn: table[PRIV].key.fn,
+          column: table[PRIV].key.column[PRIV],
+        },
+        indexes: table[PRIV].indexes.map(
+          ({ name, column, fn }): IndexResolved => {
+            const nameLower = name.toLowerCase();
+            if (nameLower === "key") {
               throw new Error(`Index name 'key' is reserved`);
             }
-            if (name.toLocaleLowerCase() === "data") {
+            if (nameLower === "data") {
               throw new Error(`Index name 'data' is reserved`);
             }
-            if (name.toLocaleLowerCase() === "internal_current_key") {
+            if (nameLower === "internal_current_key") {
+              // Reserved because we use this name in the UPDATE query
               throw new Error(`Index name 'internal_current_key' is reserved`);
             }
-            return { name, column };
+            if (indexesNames.has(nameLower)) {
+              throw new Error(`Duplicate index name '${nameLower}'`);
+            }
+            indexesNames.add(nameLower);
+            return { name, column: column[PRIV], fn };
           }
         ),
       };

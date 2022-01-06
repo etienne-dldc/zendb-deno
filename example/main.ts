@@ -1,7 +1,6 @@
 import { resolve } from "https://deno.land/std@0.113.0/path/mod.ts";
 import { ensureDirSync } from "https://deno.land/std@0.113.0/fs/mod.ts";
-import { nanoid } from "https://deno.land/x/nanoid/mod.ts";
-import { User, v001 } from "./migrations/v001.ts";
+import { v001 } from "./migrations/v001.ts";
 import * as sql from "../mod.ts";
 
 const e = sql.expr;

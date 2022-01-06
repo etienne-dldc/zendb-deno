@@ -1,6 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
 import { DB, PreparedQuery } from "../deps.ts";
-import { serializeDatatype } from "./Datatype.ts";
 import { PipeCollection, PipeParent, PipeSingle } from "./Pipe.ts";
 import { IndexesAny, SchemaAny, TableResolved } from "./Schema.ts";
 import { Select } from "./Select.ts";
@@ -12,12 +11,14 @@ import {
   traverserFromRowIterator,
 } from "./Utils.ts";
 import { DataFromValues, serializeValues, ValuesAny } from "./Values.ts";
+import { serializeColumn } from "./Column.ts";
 
 type QueriesCache = {
   insert: PreparedQuery | null;
   deleteByKey: PreparedQuery | null;
   updateByKey: PreparedQuery | null;
   selectAll: PreparedQuery | null;
+  findByKey: PreparedQuery | null;
 };
 
 export class DatabaseTable<
@@ -38,6 +39,7 @@ export class DatabaseTable<
     deleteByKey: null,
     updateByKey: null,
     selectAll: null,
+    findByKey: null,
   };
 
   constructor(name: Name, schema: SchemaAny, getDb: () => DB) {
@@ -134,6 +136,19 @@ export class DatabaseTable<
     });
   }
 
+  private getFindByKeyQuery(): PreparedQuery {
+    return this.getQuery("findByKey", (): PreparedQuery => {
+      const db = this.getDb();
+      const query = join.space(
+        `SELECT key, data FROM ${sqlQuote(this.name)}`,
+        `WHERE`,
+        `key = $1`,
+        `LIMIT 1`
+      );
+      return db.prepareQuery(query);
+    });
+  }
+
   private prepareData(data: unknown): {
     key: Key;
     serailizedKey: any;
@@ -141,17 +156,24 @@ export class DatabaseTable<
     indexes: Array<unknown>;
   } {
     const key = this.tableConfig.key.fn(data);
-    const serailizedKey = serializeDatatype(this.tableConfig.key.datatype, key);
+    const serailizedKey = serializeColumn(
+      this.tableConfig.key.column,
+      key,
+      "key"
+    );
     const indexes = this.tableConfig.indexes.map((index) => {
-      const val = index.column.fn(data);
-      return serializeDatatype(index.column.datatype, val);
+      return serializeColumn(index.column, index.fn(data), index.name);
     });
     const dataSer = JSON.stringify(this.schema.sanitize(data));
     return { key: key, serailizedKey, data: dataSer, indexes };
   }
 
   private deleteByKey(key: Key) {
-    const serializedKey = serializeDatatype(this.tableConfig.key.datatype, key);
+    const serializedKey = serializeColumn(
+      this.tableConfig.key.column,
+      key,
+      "key"
+    );
     this.getDeleteByKeyQuery().execute([serializedKey] as any);
   }
 
@@ -167,7 +189,11 @@ export class DatabaseTable<
 
   private updateByKey(key: Key, data: unknown): { updatedKey: Key } {
     const prepared = this.prepareData(data);
-    const serializedKey = serializeDatatype(this.tableConfig.key.datatype, key);
+    const serializedKey = serializeColumn(
+      this.tableConfig.key.column,
+      key,
+      "key"
+    );
     const query = this.getUpdateByKeyQuery();
     const params: Record<string, unknown> = {
       // deno-lint-ignore camelcase
@@ -180,6 +206,10 @@ export class DatabaseTable<
     });
     query.execute(params as any);
     return { updatedKey: prepared.key };
+  }
+
+  private restore(data: string): Data {
+    return this.schema.restore(JSON.parse(data)) as any;
   }
 
   insert(data: Data): PipeSingle<Key, Data, false> {
@@ -200,8 +230,7 @@ export class DatabaseTable<
       params: params ?? null,
       where: null,
       limit: null,
-      offset: null,
-      sort: null,
+      orderBy: null,
     });
   }
 
@@ -223,9 +252,8 @@ export class DatabaseTable<
       paramsValues === null ? {} : serializeValues(paramsValues, params as any);
     const iter = preparedQuery.iter(paramsSerialized as any);
     return new PipeCollection(
-      traverserFromRowIterator<Key, string, Data>(
-        iter,
-        (data) => this.schema.restore(JSON.parse(data)) as any
+      traverserFromRowIterator<Key, string, Data>(iter, (data) =>
+        this.restore(data)
       ),
       this.pipeParent
     );
@@ -234,21 +262,32 @@ export class DatabaseTable<
   all(): PipeCollection<Key, Data> {
     const iter = this.getSelectAllQuery().iter();
     return new PipeCollection(
-      traverserFromRowIterator<Key, string, Data>(
-        iter as any,
-        (data) => this.schema.restore(JSON.parse(data)) as any
+      traverserFromRowIterator<Key, string, Data>(iter as any, (data) =>
+        this.restore(data)
       ),
       this.pipeParent
     );
   }
 
-  findByKey(_value: Key): PipeSingle<Key, Data, true> {
-    throw new Error("Not Implemented");
+  findByKey(key: Key): PipeSingle<Key, Data, true> {
+    const query = this.getFindByKeyQuery();
+    const serializedKey = serializeColumn(
+      this.tableConfig.key.column,
+      key,
+      "key"
+    );
+    const entry = query.allEntries(serializedKey as any)[0];
+    return new PipeSingle<Key, Data, true>(
+      entry
+        ? { key: entry.key as any, data: this.restore(entry.data as any) }
+        : null,
+      this.pipeParent
+    );
   }
 
   findBy<IndexName extends keyof Indexes>(
     _indexName: IndexName,
-    _value: Indexes[IndexName][PRIV]
+    _value: Extract<Indexes[number][PRIV], { name: IndexName }>["value"]
   ): PipeCollection<Key, Data> {
     throw new Error("Not Implemented");
   }

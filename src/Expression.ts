@@ -28,12 +28,13 @@ export const expr = {
 };
 
 export function printExpression(expr: Expr): string {
+  if (expr === null) {
+    return "NULL";
+  }
   if (typeof expr === "string") {
-    console.warn("TODO: safe escape string ?");
-    return expr;
+    return `'${expr.replace(`'`, `''`)}'`;
   }
   if (typeof expr === "number") {
-    console.warn("TODO: check invalid numbers ?");
     return expr.toString();
   }
   if (typeof expr === "boolean") {
@@ -85,7 +86,8 @@ export type Expr =
   | IndexRef
   | number
   | string
-  | boolean;
+  | boolean
+  | null;
 
 export type ParamRef = {
   kind: "ParamRef";

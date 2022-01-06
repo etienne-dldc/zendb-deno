@@ -211,12 +211,13 @@ export function parseDatatype<D extends Datatype>(
   return expectNever(dt);
 }
 
-// export function normalizeDateValue(val: DateValue): number {
-//   if (typeof val === "number") {
-//     return val;
-//   }
-//   if (val instanceof Date) {
-//     return (val.getTime() / 1000);
-//   }
-//   return expectNever(val);
-// }
+export function printDatatype(datatype: Datatype): string {
+  return {
+    json: "TEXT",
+    text: "TEXT",
+    number: "FLOAT",
+    integer: "INTEGER",
+    date: "FLOAT",
+    boolean: "INTEGER",
+  }[datatype.kind];
+}

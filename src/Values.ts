@@ -1,7 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { zod } from "../deps.ts";
-import { mapObject } from "./Utils.ts";
-// import { ColumnBuilder, ColumnBuilderAny } from "./ColumnBuilder.ts";
+import { mapObject, PRIV } from "./Utils.ts";
 import {
   Datatype,
   datatype,
@@ -23,11 +22,13 @@ export interface Value<
   Nullable extends boolean,
   DefaultValue extends DefaultValueBase
 > {
-  datatype: Dt;
-  isNullable: Nullable;
-  defaultValue: DefaultValue;
+  [PRIV]: {
+    datatype: Dt;
+    nullable: Nullable;
+    defaultValue: DefaultValue;
+  };
   nullable(): Value<Dt, true, DefaultValue>;
-  setDefaultValue<DefaultValue extends DatatypeParsed<Dt>>(
+  defaultValue<DefaultValue extends DatatypeParsed<Dt>>(
     val: () => DefaultValue
   ): Value<Dt, Nullable, () => DefaultValue>;
 }
@@ -37,9 +38,9 @@ export type ValueAny = Value<Datatype, boolean, DefaultValueBase>;
 export type ValuesAny = Record<string, ValueAny>;
 
 export type DataFromValue<Value extends ValueAny> =
-  | DatatypeParsed<Value["datatype"]>
-  | (Value["isNullable"] extends true ? null : never)
-  | (Value["defaultValue"] extends null ? never : null);
+  | DatatypeParsed<Value[PRIV]["datatype"]>
+  | (Value[PRIV]["nullable"] extends true ? null : never)
+  | (Value[PRIV]["defaultValue"] extends null ? never : null);
 
 export type DataFromValues<Values extends ValuesAny> = {
   [K in keyof Values]: DataFromValue<Values[K]>;
@@ -86,18 +87,20 @@ export function createValue<Dt extends Datatype>(
     DefaultValue extends DefaultValueBase
   >(
     datatype: Dt,
-    isNullable: Nullable,
+    nullable: Nullable,
     defaultValue: DefaultValue
   ): Value<Dt, Nullable, DefaultValue> {
     return {
-      datatype,
-      isNullable,
-      defaultValue,
+      [PRIV]: {
+        datatype,
+        nullable,
+        defaultValue,
+      },
       nullable() {
         return create(datatype, true, defaultValue);
       },
-      setDefaultValue(defaultValue) {
-        return create(datatype, isNullable, defaultValue);
+      defaultValue(defaultValue) {
+        return create(datatype, nullable, defaultValue);
       },
     };
   }
@@ -109,16 +112,17 @@ export function serializeValues<Values extends ValuesAny>(
 ): Record<string, unknown> {
   return mapObject(values, (valueName, value) => {
     const dataItem = data[valueName];
+    const val = value[PRIV];
     if (dataItem === undefined || dataItem === null) {
-      if (value.defaultValue) {
-        return serializeDatatype(value.datatype, value.defaultValue());
+      if (val.defaultValue) {
+        return serializeDatatype(val.datatype, val.defaultValue());
       }
-      if (value.isNullable) {
+      if (val.nullable) {
         return null;
       }
       throw new Error(`Missing value ${valueName}.`);
     }
-    return serializeDatatype(value.datatype, dataItem);
+    return serializeDatatype(val.datatype, dataItem);
   });
 }
 
@@ -128,15 +132,16 @@ export function parseValues<Values extends ValuesAny>(
 ): DataFromValues<Values> {
   return mapObject(values, (valueName, value) => {
     const dataItem = data[valueName];
+    const val = value[PRIV];
     if (dataItem === undefined || dataItem === null) {
-      if (value.defaultValue) {
-        return value.defaultValue();
+      if (val.defaultValue) {
+        return val.defaultValue();
       }
-      if (value.isNullable) {
+      if (val.nullable) {
         return null;
       }
       throw new Error(`Value ${valueName} cannot be null/undefined.`);
     }
-    return parseDatatype(value.datatype, dataItem as any);
+    return parseDatatype(val.datatype, dataItem as any);
   }) as any;
 }

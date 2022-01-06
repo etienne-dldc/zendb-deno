@@ -21,20 +21,17 @@ export const v001 = sql.schema({
   sanitize,
   restore,
   tables: {
-    users: sql.table<User>()(
-      sql.column.text((data) => data.id),
-      {
-        age: sql.column.number((data) => data.age),
-        date: sql.column.date((data) => data.date),
-      }
-    ),
-    bankRecords: sql.table<BankRecord>()(
-      sql.column.text((data) => data.id),
-      { date: sql.column.date((data) => data.date) }
-    ),
-    transformation: sql.table<Transformation>()(
-      sql.column.text((data) => data.id),
-      {}
-    ),
+    users: sql
+      .table<User>()
+      .key(sql.column.text(), (data) => data.id)
+      .index("age", sql.column.number(), (data) => data.age)
+      .index("date", sql.column.date(), (data) => data.date),
+    bankRecords: sql
+      .table<BankRecord>()
+      .key(sql.column.text(), (data) => data.id)
+      .index("date", sql.column.date(), (data) => data.date),
+    transformations: sql
+      .table<Transformation>()
+      .key(sql.column.text(), (data) => data.id),
   },
 });

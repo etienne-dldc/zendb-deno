@@ -1,4 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
+import { encode, Hash } from "../deps.ts";
 
 export const PRIV = Symbol.for("ZENDB_PRIVATE");
 export type PRIV = typeof PRIV;
@@ -98,4 +99,18 @@ export function traverserToIterable<K, T, O>(
       };
     },
   };
+}
+
+export function fingerprintString(str: string, max: number): number {
+  const hashBuffer = new Hash("md5").digest(encode(str)).data;
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  let result = 0;
+  hashArray.forEach((num) => {
+    result = (result + num) % max;
+  });
+  // never return 0
+  if (result === 0) {
+    return max;
+  }
+  return result;
 }
