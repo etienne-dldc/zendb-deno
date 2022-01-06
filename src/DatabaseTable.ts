@@ -21,6 +21,13 @@ type QueriesCache = {
   findByKey: PreparedQuery | null;
 };
 
+export type DatabaseTableAny = DatabaseTable<
+  string | number | symbol,
+  any,
+  any,
+  IndexesAny<any>
+>;
+
 export class DatabaseTable<
   Name extends string | number | symbol,
   Key,
@@ -29,6 +36,7 @@ export class DatabaseTable<
 > {
   readonly name: Name;
   readonly schema: SchemaAny;
+  readonly [PRIV]: { close: () => void };
 
   private readonly getDb: () => DB;
   private readonly tableConfig: TableResolved;
@@ -54,6 +62,18 @@ export class DatabaseTable<
       insert: this.insertInternal.bind(this),
       updateByKey: this.updateByKey.bind(this),
     };
+    this[PRIV] = {
+      close: this.close.bind(this),
+    };
+  }
+
+  private close() {
+    Object.entries(this.cache).forEach(([name, query]) => {
+      if (query !== null) {
+        query.finalize();
+        (this.cache as any)[name] = null;
+      }
+    });
   }
 
   private getQuery<Name extends keyof QueriesCache>(
@@ -234,6 +254,23 @@ export class DatabaseTable<
     });
   }
 
+  count(query: Select<Name, Key, Data, Indexes, null>): number;
+  count<Params extends ValuesAny>(
+    query: Select<Name, Key, Data, Indexes, Params>,
+    params: DataFromValues<Params>
+  ): number;
+  count<Params extends ValuesAny | null>(
+    query: Select<Name, Key, Data, Indexes, Params>,
+    params?: Params extends ValuesAny ? DataFromValues<Params> : null
+  ): number {
+    const db = this.getDb();
+    const preparedQuery = query[PRIV].getCountQuery(db);
+    const paramsValues = query[PRIV].params;
+    const paramsSerialized =
+      paramsValues === null ? {} : serializeValues(paramsValues, params as any);
+    return preparedQuery.one(paramsSerialized as any)[0];
+  }
+
   select(
     query: Select<Name, Key, Data, Indexes, null>
   ): PipeCollection<Key, Data>;
@@ -246,7 +283,7 @@ export class DatabaseTable<
     params?: Params extends ValuesAny ? DataFromValues<Params> : null
   ): PipeCollection<Key, Data> {
     const db = this.getDb();
-    const preparedQuery = query[PRIV].getQuery(db);
+    const preparedQuery = query[PRIV].getSelectQuery(db);
     const paramsValues = query[PRIV].params;
     const paramsSerialized =
       paramsValues === null ? {} : serializeValues(paramsValues, params as any);
@@ -283,16 +320,5 @@ export class DatabaseTable<
         : null,
       this.pipeParent
     );
-  }
-
-  findBy<IndexName extends keyof Indexes>(
-    _indexName: IndexName,
-    _value: Extract<Indexes[number][PRIV], { name: IndexName }>["value"]
-  ): PipeCollection<Key, Data> {
-    throw new Error("Not Implemented");
-  }
-
-  count(): number {
-    throw new Error("Not Implemented");
   }
 }

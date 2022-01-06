@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { DB } from "../deps.ts";
-import { DatabaseTable } from "./DatabaseTable.ts";
+import { DatabaseTable, DatabaseTableAny } from "./DatabaseTable.ts";
 import { printDatatype } from "./Datatype.ts";
 import { SchemaAny } from "./Schema.ts";
 import { PRIV, join, sqlQuote, fingerprintString } from "./Utils.ts";
@@ -54,6 +54,9 @@ export class Database<Schema extends SchemaAny> {
   }
 
   close() {
+    Object.values<DatabaseTableAny>(this.tables).forEach((table) => {
+      table[PRIV].close();
+    });
     if (this.db) {
       this.db.close();
       this.db = null;

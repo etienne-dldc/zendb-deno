@@ -1,7 +1,7 @@
 import * as sql from "../../mod.ts";
 import { sanitize, restore } from "https://deno.land/x/zenjson/mod.ts";
 
-export type People = { id: string; name: string; age: number; date: Date };
+export type User = { id: string; name: string; age: number; date: Date };
 
 export type BankRecord = {
   id: string;
@@ -15,8 +15,8 @@ export const schema = sql.schema({
   sanitize,
   restore,
   tables: {
-    peoples: sql
-      .table<People>()
+    users: sql
+      .table<User>()
       .key(sql.column.text(), (data) => data.id)
       .index("age", sql.column.number(), (data) => data.age)
       .index("date", sql.column.date(), (data) => data.date),

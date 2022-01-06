@@ -6,10 +6,8 @@ import { SchemaAny, IndexesAny, TableResolved } from "./Schema.ts";
 import { PRIV, join, mapObject, notNil, sqlQuote } from "./Utils.ts";
 import { ValuesAny } from "./Values.ts";
 
-type SelectInternal<
+export type SelectInternalData<
   Name extends string | number | symbol,
-  Key,
-  Data,
   Params extends ValuesAny | null
 > = {
   table: Name;
@@ -18,8 +16,20 @@ type SelectInternal<
   where: Expr | null;
   orderBy: Array<Expr> | null;
   limit: { limit: Expr; offset: Expr | null } | null;
-  getQuery(db: DB): PreparedQuery<[Key, string], { key: Key; data: string }>;
 };
+
+export type SelectInternalFunctions<Key> = {
+  getSelectQuery(
+    db: DB
+  ): PreparedQuery<[Key, string], { key: Key; data: string }>;
+  getCountQuery(db: DB): PreparedQuery<[number], { count: number }>;
+};
+
+export type SelectInternal<
+  Name extends string | number | symbol,
+  Key,
+  Params extends ValuesAny | null
+> = SelectInternalData<Name, Params> & SelectInternalFunctions<Key>;
 
 export type IndexesRefs<Indexes extends IndexesAny<any>> = {
   [K in Indexes[number]["name"]]: IndexRef;
@@ -54,6 +64,11 @@ export type SelectTools<
   params: Params extends ValuesAny ? ParamsRef<Params> : {};
 };
 
+type QueriesCache<Key> = {
+  select: PreparedQuery<[Key, string], { key: Key; data: string }> | null;
+  count: PreparedQuery<[number], { count: number }> | null;
+};
+
 export class Select<
   Name extends string | number | symbol,
   Key,
@@ -62,34 +77,57 @@ export class Select<
   Params extends ValuesAny | null
 > {
   private readonly tableConfig: TableResolved;
-  private cachedQuery: PreparedQuery<
-    [Key, string],
-    { key: Key; data: string }
-  > | null = null;
+  private readonly cache: QueriesCache<Key> = {
+    select: null,
+    count: null,
+  };
 
-  readonly [PRIV]: SelectInternal<Name, Key, Data, Params>;
+  readonly [PRIV]: SelectInternal<Name, Key, Params>;
 
-  constructor(
-    internal: Omit<SelectInternal<Name, Key, Data, Params>, "getQuery">
-  ) {
+  constructor(internal: SelectInternalData<Name, Params>) {
     this[PRIV] = {
       ...internal,
-      getQuery: this.getQuery.bind(this),
+      getSelectQuery: this.getSelectQuery.bind(this),
+      getCountQuery: this.getCountQuery.bind(this),
     };
     this.tableConfig = notNil(
       internal.schema.tables.find((table) => table.name === internal.table)
     );
   }
 
-  private getQuery(
+  private getQuery<Name extends keyof QueriesCache<Key>>(
+    name: Name,
+    create: () => QueriesCache<Key>[Name]
+  ): NonNullable<QueriesCache<Key>[Name]> {
+    if (this.cache[name] === null) {
+      this.cache[name] = create();
+    }
+    return this.cache[name] as any;
+  }
+
+  private getSelectQuery(
     db: DB
   ): PreparedQuery<[Key, string], { key: Key; data: string }> {
-    if (this.cachedQuery) {
-      return this.cachedQuery;
-    }
+    return this.getQuery("select", () => {
+      const query = join.space(`SELECT key, data`, this.getQueryFromClause());
+      return db.prepareQuery(query);
+    });
+  }
+
+  private getCountQuery(db: DB) {
+    return this.getQuery("count", () => {
+      const query = join.space(
+        `SELECT COUNT(*) AS count`,
+        this.getQueryFromClause()
+      );
+      return db.prepareQuery(query);
+    });
+  }
+
+  private getQueryFromClause(): string {
     const { where, limit, orderBy } = this[PRIV];
-    const query = join.space(
-      `SELECT key, data FROM`,
+    return join.space(
+      `FROM`,
       sqlQuote(this.tableConfig.name),
       where ? join.space(`WHERE`, printExpression(where)) : null,
       orderBy
@@ -108,15 +146,15 @@ export class Select<
           )
         : null
     );
-    this.cachedQuery = db.prepareQuery(query);
-    return this.cachedQuery;
   }
 
   finalize() {
-    if (this.cachedQuery) {
-      this.cachedQuery.finalize();
-      this.cachedQuery = null;
-    }
+    Object.entries(this.cache).forEach(([name, query]) => {
+      if (query) {
+        query.finalize();
+        (this.cache as any)[name] = null;
+      }
+    });
   }
 
   where(

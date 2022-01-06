@@ -16,21 +16,23 @@ type Migrate<
   next: Database<NextSchema>
 ) => void | Promise<void>;
 
-type FirstMigrationItem<Schema extends SchemaAny> = MigrationItem<null, Schema>;
-
 type MigrationItem<
   PrevSchema extends SchemaAny | null,
   NextSchema extends SchemaAny
 > = {
-  name: string;
+  id: string;
+  description: string;
   schema: NextSchema;
-  migrate?: Migrate<PrevSchema | null, NextSchema>;
+  migrate?: Migrate<PrevSchema, NextSchema>;
 };
+
+type FirstMigrationItem<Schema extends SchemaAny> = MigrationItem<null, Schema>;
 
 type MigrationItemAny = MigrationItem<SchemaAny | null, SchemaAny>;
 
 type MigrationObj = {
-  name: string;
+  id: string;
+  description: string;
   database: Database<SchemaAny>;
   migrate?: Migrate<SchemaAny | null, SchemaAny>;
 };
@@ -49,13 +51,15 @@ export class Migrations<Schema extends SchemaAny> {
   }
 
   addMigration<NextSchema extends SchemaAny>({
-    name,
+    id,
+    description,
     schema,
     migrate,
   }: MigrationItem<Schema, NextSchema>): Migrations<NextSchema> {
     const database = new Database(schema, this.migrations.length);
     const item: MigrationObj = {
-      name,
+      id,
+      description,
       database: database as any,
       migrate: migrate as any,
     };
@@ -85,7 +89,7 @@ export class Migrations<Schema extends SchemaAny> {
       const prevDb = prevItem ? prevItem.database : null;
       const nextDb = mig.database;
       console.log(
-        `Running migration ${mig.name} (${
+        `Running migration ${mig.id} "${mig.description}" (${
           prevDb ? prevDb.fingerpring : "INIT"
         } -> ${nextDb.fingerpring})`
       );
