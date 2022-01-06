@@ -50,26 +50,21 @@ export const database = await migration.apply({
   migrationDatabasePath,
 });
 
-// const tables = database.tables;
+const tables = database.tables;
 
-// const queryUserById = tables.users
-//   .prepare({ maxAge: sql.value.number() })
-//   .where(({ params, indexes }) => e.lte(indexes.age, params.maxAge));
+const queryUser = tables.users
+  .prepare({ maxAge: sql.value.number() })
+  .where(({ params, indexes }) => e.lte(indexes.age, params.maxAge));
 
-// tables.users.insert(createUser());
-// tables.users.insert(createUser());
-// tables.users.insert(createUser());
-// tables.users.insert(createUser());
+tables.users
+  .select(queryUser, { maxAge: 30 })
+  .update((prev) => ({ ...prev, name: "Lucas" }))
+  .apply();
 
-// tables.users
-//   .select(queryUserById, { maxAge: 30 })
-//   .update((prev) => ({ ...prev, name: "Lucas" }))
-//   .apply();
+const users = tables.users.select(queryUser, { maxAge: 30 }).valuesArray();
 
-// const users = tables.users.select(queryUserById, { maxAge: 30 }).valuesArray();
+console.log(users);
 
-// console.log(users);
+const usersCount = tables.users.count(queryUser, { maxAge: 30 });
 
-// const usersCount = tables.users.count(queryUserById, { maxAge: 30 });
-
-// console.log({ usersCount });
+console.log({ usersCount });
